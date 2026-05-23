@@ -640,8 +640,9 @@ func (it *Iterator) parseItem() bool {
 	if it.opt.AllVersions {
 		// Return deleted or expired values also, otherwise user can't figure out
 		// whether the key was deleted.
+		vs := mi.Value()
 		item := it.newItem()
-		it.fill(item)
+		it.fill(item, key, &vs)
 		setItem(item)
 		mi.Next()
 		return true
@@ -659,11 +660,13 @@ func (it *Iterator) parseItem() bool {
 		// Consider keys: a 5, b 7 (del), b 5. When iterating, lastKey = a.
 		// Then we see b 7, which is deleted. If we don't store lastKey = b, we'll then return b 5,
 		// which is wrong. Therefore, update lastKey here.
-		it.lastKey = y.SafeCopy(it.lastKey, mi.Key())
+		it.lastKey = y.SafeCopy(it.lastKey, key)
 	}
 
 FILL:
-	// If deleted, advance and return.
+	// If deleted, advance and return. We fetch vs (and reuse key from the
+	// enclosing scope, or refetch after Next on the reverse goto below) so
+	// that fill does not have to call mi.Value() / mi.Key() a second time.
 	vs := mi.Value()
 	if isDeletedOrExpired(vs.Meta, vs.ExpiresAt) {
 		mi.Next()
@@ -671,7 +674,7 @@ FILL:
 	}
 
 	item := it.newItem()
-	it.fill(item)
+	it.fill(item, key, &vs)
 	// fill item based on current cursor position. All Next calls have returned, so reaching here
 	// means no Next was called.
 
@@ -681,9 +684,11 @@ FILL:
 		return true
 	}
 
-	// Reverse direction.
-	nextTs := y.ParseTs(mi.Key())
-	mik := y.ParseKey(mi.Key())
+	// Reverse direction. Refresh key after the Next() above; the iterator
+	// has advanced, so the previous `key` slice now refers to a later block.
+	key = mi.Key()
+	nextTs := y.ParseTs(key)
+	mik := y.ParseKey(key)
 	if nextTs <= it.readTs && bytes.Equal(mik, item.key) {
 		// This is a valid potential candidate.
 		goto FILL
@@ -693,14 +698,18 @@ FILL:
 	return true
 }
 
-func (it *Iterator) fill(item *Item) {
-	vs := it.iitr.Value()
+// fill populates item from the current iterator position. Callers pass the
+// already-fetched key and value pointer to avoid the per-item cost of
+// calling mi.Key() / mi.Value() (and decoding ValueStruct) a second time
+// on the hot iterator path. vs is passed by pointer to avoid copying the
+// ~40-byte ValueStruct on every kept item.
+func (it *Iterator) fill(item *Item, key []byte, vs *y.ValueStruct) {
 	item.meta = vs.Meta
 	item.userMeta = vs.UserMeta
 	item.expiresAt = vs.ExpiresAt
 
-	item.version = y.ParseTs(it.iitr.Key())
-	item.key = y.SafeCopy(item.key, y.ParseKey(it.iitr.Key()))
+	item.version = y.ParseTs(key)
+	item.key = y.SafeCopy(item.key, y.ParseKey(key))
 
 	item.vptr = y.SafeCopy(item.vptr, vs.Value)
 	item.val = nil
