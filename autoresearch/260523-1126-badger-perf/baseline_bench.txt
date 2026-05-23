@@ -1,0 +1,535 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/skl
+cpu: Apple M4 Max
+BenchmarkReadWrite/frac_0-16         	       3	     19125 ns/op	   31456 B/op	      27 allocs/op
+BenchmarkReadWrite/frac_1-16         	       3	     20125 ns/op	   30693 B/op	      24 allocs/op
+BenchmarkReadWrite/frac_2-16         	       3	     15806 ns/op	   31120 B/op	      26 allocs/op
+BenchmarkReadWrite/frac_3-16         	       3	     21014 ns/op	   30970 B/op	      26 allocs/op
+BenchmarkReadWrite/frac_4-16         	       3	     20194 ns/op	   29792 B/op	      21 allocs/op
+BenchmarkReadWrite/frac_5-16         	       3	     20361 ns/op	   29466 B/op	      21 allocs/op
+BenchmarkReadWrite/frac_6-16         	       3	     18375 ns/op	   31898 B/op	      24 allocs/op
+BenchmarkReadWrite/frac_7-16         	       3	     16083 ns/op	   30677 B/op	      22 allocs/op
+BenchmarkReadWrite/frac_8-16         	       3	     21653 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkReadWrite/frac_9-16         	       3	     17680 ns/op	   30197 B/op	      21 allocs/op
+BenchmarkReadWrite/frac_10-16        	       3	     23361 ns/op	   31125 B/op	      23 allocs/op
+BenchmarkReadWriteMap/frac_0-16      	       3	     20250 ns/op	   29285 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_1-16      	       3	     18722 ns/op	   29317 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_2-16      	       3	     14805 ns/op	   31072 B/op	      23 allocs/op
+BenchmarkReadWriteMap/frac_3-16      	       3	     20139 ns/op	   30624 B/op	      22 allocs/op
+BenchmarkReadWriteMap/frac_4-16      	       3	     15042 ns/op	   29312 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_5-16      	       3	     19778 ns/op	   30650 B/op	      22 allocs/op
+BenchmarkReadWriteMap/frac_6-16      	       3	     16625 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkReadWriteMap/frac_7-16      	       3	     16472 ns/op	   29274 B/op	      19 allocs/op
+BenchmarkReadWriteMap/frac_8-16      	       3	     17972 ns/op	   29184 B/op	      19 allocs/op
+BenchmarkReadWriteMap/frac_9-16      	       3	     19306 ns/op	   29280 B/op	      19 allocs/op
+BenchmarkReadWriteMap/frac_10-16     	       3	     18222 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkWrite-16                    	       3	     20570 ns/op	   29168 B/op	      21 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/skl	0.204s
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/table
+cpu: Apple M4 Max
+BenchmarkBuilder/no_compression-16         	       3	  60790597 ns/op	1368.63 MB/s	228623005 B/op	  162598 allocs/op
+BenchmarkBuilder/encryption-16             	       3	  70790139 ns/op	1175.30 MB/s	379402442 B/op	  223062 allocs/op
+BenchmarkBuilder/snappy_compression-16     	       3	  67111458 ns/op	1239.73 MB/s	316056072 B/op	  162658 allocs/op
+BenchmarkBuilder/zstd_compression/level_1-16         	       3	  71087125 ns/op	1170.39 MB/s	309924125 B/op	  162650 allocs/op
+BenchmarkBuilder/zstd_compression/level_3-16         	       3	  65713695 ns/op	1266.10 MB/s	309922584 B/op	  162647 allocs/op
+BenchmarkBuilder/zstd_compression/level_15-16        	       3	  64809903 ns/op	1283.75 MB/s	309918376 B/op	  162632 allocs/op
+BenchmarkRead-16                                     	       3	 359363208 ns/op	110342173 B/op	  291388 allocs/op
+BenchmarkReadAndBuild-16                             	       3	 837269667 ns/op	1023175512 B/op	 2994913 allocs/op
+BenchmarkReadMerged-16                               	       3	 553320514 ns/op	113498786 B/op	  298799 allocs/op
+BenchmarkChecksum/CRC_1024-16                        	       3	       194.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_1024-16                   	       3	        97.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_1024-16                     	       3	      2764 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_2048-16                        	       3	       291.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_2048-16                   	       3	       111.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_2048-16                     	       3	      2028 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_4096-16                        	       3	       611.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_4096-16                   	       3	       250.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_4096-16                     	       3	      2681 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_8192-16                        	       3	      1111 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_8192-16                   	       3	       472.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_8192-16                     	       3	      4444 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_16384-16                       	       3	      1986 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_16384-16                  	       3	       916.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_16384-16                    	       3	      7681 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_32768-16                       	       3	      3903 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_32768-16                  	       3	      1778 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_32768-16                    	       3	     13278 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_65536-16                       	       3	      7750 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_65536-16                  	       3	      3375 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_65536-16                    	       3	     25070 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_131072-16                      	       3	     14681 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_131072-16                 	       3	      6820 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_131072-16                   	       3	     45389 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_262144-16                      	       3	     28847 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_262144-16                 	       3	     13167 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_262144-16                   	       3	     90917 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_1048576-16                     	       3	     99250 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_1048576-16                	       3	     48139 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_1048576-16                  	       3	    364014 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRandomRead-16                               	       3	   1613528 ns/op	  738688 B/op	   16613 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/table	14.969s
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/y
+cpu: Apple M4 Max
+BenchmarkBuffer/bytes-buffer-16         	       3	      2750 ns/op	    2389 B/op	       1 allocs/op
+BenchmarkBuffer/page-buffer/page-size-1024-16         	       3	      1611 ns/op	    1048 B/op	       2 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/y	0.238s
+Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 21MB
+Badger DB Size = 23MB
+Badger DB Size = 25MB
+Badger DB Size = 27MB
+Badger DB Size = 31MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 11MB
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4
+cpu: Apple M4 Max
+BenchmarkDbGrowth-16                         	Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 21MB
+Badger DB Size = 23MB
+Badger DB Size = 25MB
+Badger DB Size = 27MB
+Badger DB Size = 31MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 9MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 21MB
+Badger DB Size = 11MB
+Badger DB Size = 13MB
+Badger DB Size = 15MB
+Badger DB Size = 17MB
+Badger DB Size = 11MB
+       3	 578145736 ns/op	449483757 B/op	 6776559 allocs/op
+BenchmarkIteratePrefixSingleKey/Key_lookups-16         	       3	      6111 ns/op	    1840 B/op	      22 allocs/op
+--- BENCH: BenchmarkIteratePrefixSingleKey/Key_lookups-16
+    iterator_test.go:387: Inner b.N: 1
+    iterator_test.go:387: Inner b.N: 3
+BenchmarkValueGCRewriteExpiredOnlyFile-16              	       3	   5571028 ns/op	20300904 B/op	   90136 allocs/op
+BenchmarkReadWrite/0.1,0064-16                         	       3	   1692097 ns/op	   14773 B/op	     243 allocs/op
+BenchmarkReadWrite/0.2,0064-16                         	       3	   1672042 ns/op	   14690 B/op	     244 allocs/op
+BenchmarkReadWrite/0.5,0064-16                         	       3	   1731819 ns/op	   15320 B/op	     253 allocs/op
+BenchmarkReadWrite/1.0,0064-16                         	       3	   1714583 ns/op	   15096 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,0128-16                         	       3	   1741472 ns/op	   14730 B/op	     242 allocs/op
+BenchmarkReadWrite/0.2,0128-16                         	       3	   1713000 ns/op	   14984 B/op	     246 allocs/op
+BenchmarkReadWrite/0.5,0128-16                         	       3	   1778000 ns/op	   15096 B/op	     246 allocs/op
+BenchmarkReadWrite/1.0,0128-16                         	       3	   3700889 ns/op	   15224 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,0256-16                         	       3	   1647167 ns/op	   15229 B/op	     245 allocs/op
+BenchmarkReadWrite/0.2,0256-16                         	       3	   1647931 ns/op	   15213 B/op	     245 allocs/op
+BenchmarkReadWrite/0.5,0256-16                         	       3	   1655042 ns/op	   15506 B/op	     249 allocs/op
+BenchmarkReadWrite/1.0,0256-16                         	       3	   1688556 ns/op	   15522 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,0512-16                         	       3	   1623639 ns/op	   15656 B/op	     244 allocs/op
+BenchmarkReadWrite/0.2,0512-16                         	       3	   1685208 ns/op	   15570 B/op	     242 allocs/op
+BenchmarkReadWrite/0.5,0512-16                         	       3	   1691278 ns/op	   16418 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,0512-16                         	       3	   1695750 ns/op	   16394 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,1024-16                         	       3	   1628625 ns/op	   16744 B/op	     244 allocs/op
+BenchmarkReadWrite/0.2,1024-16                         	       3	   1748264 ns/op	   16712 B/op	     243 allocs/op
+BenchmarkReadWrite/0.5,1024-16                         	       3	   1678597 ns/op	   17285 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,1024-16                         	       3	   1762486 ns/op	   17981 B/op	     250 allocs/op
+BenchmarkReadWrite/0.1,2048-16                         	       3	   1680695 ns/op	   18941 B/op	     243 allocs/op
+BenchmarkReadWrite/0.2,2048-16                         	       3	   1722208 ns/op	   20378 B/op	     246 allocs/op
+BenchmarkReadWrite/0.5,2048-16                         	       3	   1649361 ns/op	   19877 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,2048-16                         	       3	   1662917 ns/op	   21314 B/op	     250 allocs/op
+BenchmarkReadWrite/0.1,4096-16                         	       3	   1740403 ns/op	   23562 B/op	     244 allocs/op
+BenchmarkReadWrite/0.2,4096-16                         	       3	   1775097 ns/op	   23650 B/op	     245 allocs/op
+BenchmarkReadWrite/0.5,4096-16                         	       3	   2992292 ns/op	   23416 B/op	     242 allocs/op
+BenchmarkReadWrite/1.0,4096-16                         	       3	   1696042 ns/op	   28546 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,8192-16                         	       3	   1683903 ns/op	   32237 B/op	     244 allocs/op
+BenchmarkReadWrite/0.2,8192-16                         	       3	   1702889 ns/op	   35610 B/op	     248 allocs/op
+BenchmarkReadWrite/0.5,8192-16                         	       3	   1716361 ns/op	   38845 B/op	     250 allocs/op
+BenchmarkReadWrite/1.0,8192-16                         	       3	   1690708 ns/op	   41826 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,16384-16                        	       3	   1699361 ns/op	   49632 B/op	     246 allocs/op
+BenchmarkReadWrite/0.2,16384-16                        	       3	   1729306 ns/op	   55656 B/op	     246 allocs/op
+BenchmarkReadWrite/0.5,16384-16                        	       3	   1692278 ns/op	   55845 B/op	     249 allocs/op
+BenchmarkReadWrite/1.0,16384-16                        	       3	   1703667 ns/op	   67930 B/op	     250 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4	5.955s
+TOTAL_NS_OP=2223108965
+BENCH_COUNT=103
