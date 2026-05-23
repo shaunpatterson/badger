@@ -435,6 +435,12 @@ type Iterator struct {
 
 	lastKey []byte // Used to skip over multiple versions of the same key.
 
+	// canSeeInternalKeys is true when this iterator can possibly surface a
+	// badger-internal key (e.g. "!badger!banned"). When false, parseItem
+	// can skip the per-step bytes.HasPrefix(key, badgerPrefix) check.
+	// Computed once at construction from opt.Prefix.
+	canSeeInternalKeys bool
+
 	closed  bool
 	scanned int // Used to estimate the size of data scanned by iterator.
 
@@ -482,12 +488,24 @@ func (txn *Txn) NewIterator(opt IteratorOptions) *Iterator {
 	}
 	iters = txn.db.lc.appendIterators(iters, &opt) // This will increment references.
 	res := &Iterator{
-		txn:    txn,
-		iitr:   table.NewMergeIterator(iters, opt.Reverse),
-		opt:    opt,
-		readTs: txn.readTs,
+		txn:               txn,
+		iitr:              table.NewMergeIterator(iters, opt.Reverse),
+		opt:               opt,
+		readTs:            txn.readTs,
+		canSeeInternalKeys: canSeeInternalKeys(opt.Prefix),
 	}
 	return res
+}
+
+// canSeeInternalKeys reports whether an iterator with the given prefix can
+// possibly surface a badger-internal key. Internal keys all live under the
+// fixed badgerPrefix; if the user's prefix exists and starts with a
+// different byte than badgerPrefix[0], no internal key can match.
+func canSeeInternalKeys(prefix []byte) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	return prefix[0] == badgerPrefix[0]
 }
 
 // NewKeyIterator is just like NewIterator, but allows the user to iterate over all versions of a
@@ -616,11 +634,18 @@ func (it *Iterator) parseItem() bool {
 		}
 	}
 
-	isInternalKey := bytes.HasPrefix(key, badgerPrefix)
-	// Skip badger keys.
-	if !it.opt.InternalAccess && isInternalKey {
-		mi.Next()
-		return false
+	// Detect badger-internal keys. When canSeeInternalKeys is false (the
+	// common case for prefix-bounded user scans whose prefix cannot collide
+	// with badgerPrefix), we know the current key cannot be internal and
+	// elide the per-step bytes.HasPrefix(key, badgerPrefix) probe.
+	var isInternalKey bool
+	if it.canSeeInternalKeys {
+		isInternalKey = bytes.HasPrefix(key, badgerPrefix)
+		// Skip badger keys.
+		if !it.opt.InternalAccess && isInternalKey {
+			mi.Next()
+			return false
+		}
 	}
 
 	// Skip any versions which are beyond the readTs.
