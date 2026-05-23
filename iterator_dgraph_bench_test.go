@@ -168,6 +168,41 @@ func BenchmarkDgraphPrefixScanKeyOnly(b *testing.B) {
 	b.ReportMetric(float64(nKeys), "keys/op")
 }
 
+// BenchmarkDgraphPrefixScanKeyOnlyOpt is the same workload as
+// BenchmarkDgraphPrefixScanKeyOnly but uses IteratorOptions.KeyOnly=true.
+// This measures the win from skipping the per-item SafeCopy(vptr) on the
+// has()/index-scan hot path; callers in this mode never read item.Value.
+func BenchmarkDgraphPrefixScanKeyOnlyOpt(b *testing.B) {
+	const (
+		ns    = uint64(0x0102030405060708)
+		nKeys = 200_000
+	)
+	db, dir := openDgraphDB(b)
+	defer func() { db.Close(); removeDir(dir) }()
+	dgraphLoadDB(b, db, ns, dgAttrName, nKeys, 1)
+
+	prefix := dgPrefix(ns, dgAttrName)
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		txn := db.NewTransactionAt(math.MaxUint64, false)
+		opt := DefaultIteratorOptions
+		opt.Prefix = prefix
+		opt.KeyOnly = true
+		it := txn.NewIterator(opt)
+		count := 0
+		for it.Rewind(); it.Valid(); it.Next() {
+			count++
+		}
+		it.Close()
+		txn.Discard()
+		if count != nKeys {
+			b.Fatalf("expected %d keys, got %d", nKeys, count)
+		}
+	}
+	b.ReportMetric(float64(nKeys), "keys/op")
+}
+
 // BenchmarkDgraphPrefixScanAllVersions models the rollup path:
 // prefix-bounded forward iteration with PrefetchValues=false and
 // AllVersions=true, where each key has several MVCC versions.

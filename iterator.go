@@ -43,6 +43,11 @@ type Item struct {
 	status   prefetchStatus
 	meta     byte // We need to store meta to know about bitValuePointer.
 	userMeta byte
+	// keyOnly is true when the parent iterator was created with
+	// IteratorOptions.KeyOnly. The iterator skips copying value bytes into
+	// this item, so Item.Value/ValueCopy and the size estimators must
+	// short-circuit instead of touching the (nil) vptr.
+	keyOnly bool
 }
 
 // String returns a string representation of Item
@@ -81,6 +86,9 @@ func (item *Item) Version() uint64 {
 // instead, or copy it yourself. Value might change once discard or commit is called.
 // Use ValueCopy if you want to do a Set after Get.
 func (item *Item) Value(fn func(val []byte) error) error {
+	if item.keyOnly {
+		return ErrKeyOnlyMode
+	}
 	item.wg.Wait()
 	if item.status == prefetched {
 		if item.err == nil && fn != nil {
@@ -108,6 +116,9 @@ func (item *Item) Value(fn func(val []byte) error) error {
 // This function is useful in long running iterate/update transactions to avoid a write deadlock.
 // See Github issue: https://github.com/dgraph-io/badger/issues/315
 func (item *Item) ValueCopy(dst []byte) ([]byte, error) {
+	if item.keyOnly {
+		return nil, ErrKeyOnlyMode
+	}
 	item.wg.Wait()
 	if item.status == prefetched {
 		return y.SafeCopy(dst, item.val), item.err
@@ -213,7 +224,14 @@ func (item *Item) prefetchValue() {
 // This can be called while iterating through a store to quickly estimate the
 // size of a range of key-value pairs (without fetching the corresponding
 // values).
+//
+// When the iterator was created with IteratorOptions.KeyOnly=true, the
+// value bytes (and value pointer for vlog entries) are not retained on
+// the item, so this returns the key size only.
 func (item *Item) EstimatedSize() int64 {
+	if item.keyOnly {
+		return int64(len(item.key))
+	}
 	if !item.hasValue() {
 		return 0
 	}
@@ -235,7 +253,13 @@ func (item *Item) KeySize() int64 {
 //
 // This can be called to quickly estimate the size of a value without fetching
 // it.
+//
+// When the iterator was created with IteratorOptions.KeyOnly=true the value
+// length is not retained on the item; this returns 0.
 func (item *Item) ValueSize() int64 {
+	if item.keyOnly {
+		return 0
+	}
 	if !item.hasValue() {
 		return 0
 	}
@@ -311,6 +335,17 @@ type IteratorOptions struct {
 	Reverse        bool // Direction of iteration. False is forward, true is backward.
 	AllVersions    bool // Fetch all valid versions of the same key.
 	InternalAccess bool // Used to allow internal access to badger keys.
+
+	// KeyOnly tells the iterator that the caller will not access value bytes
+	// from any item. When set, the iterator skips copying value bytes into
+	// the Item, saving a per-item memcpy on key-only forward scans (e.g.
+	// dgraph's has() predicate evaluator and index scans). The trade-off:
+	// Item.Value and Item.ValueCopy return ErrKeyOnlyMode, and
+	// Item.ValueSize / Item.EstimatedSize report 0. Item.Key, Version,
+	// UserMeta, ExpiresAt and IsDeletedOrExpired continue to work normally.
+	//
+	// PrefetchValues is forced to false when KeyOnly is true.
+	KeyOnly bool
 
 	// The following option is used to narrow down the SSTables that iterator
 	// picks up. If Prefix is specified, only tables which could have this
@@ -468,6 +503,12 @@ func (txn *Txn) NewIterator(opt IteratorOptions) *Iterator {
 	}
 	if txn.db.IsClosed() {
 		panic(ErrDBClosed)
+	}
+
+	// KeyOnly disables value access, so prefetching values is nonsensical.
+	// Force PrefetchValues off so the prefetch goroutine is never started.
+	if opt.KeyOnly {
+		opt.PrefetchValues = false
 	}
 
 	y.NumIteratorsCreatedAdd(txn.db.opt.MetricsEnabled, 1)
@@ -732,12 +773,23 @@ func (it *Iterator) fill(item *Item, key []byte, vs *y.ValueStruct) {
 	item.meta = vs.Meta
 	item.userMeta = vs.UserMeta
 	item.expiresAt = vs.ExpiresAt
+	item.keyOnly = it.opt.KeyOnly
 
 	item.version = y.ParseTs(key)
 	item.key = y.SafeCopy(item.key, y.ParseKey(key))
 
-	item.vptr = y.SafeCopy(item.vptr, vs.Value)
 	item.val = nil
+	if it.opt.KeyOnly {
+		// Don't copy vs.Value: KeyOnly callers have promised not to read
+		// it, and the SafeCopy is the largest per-item memmove on the
+		// key-only forward-scan hot path. nil out any leftover capacity
+		// from a previous item that was reused via the iterator's
+		// freelist; callers that ignore the contract will at least see a
+		// nil vptr rather than stale bytes.
+		item.vptr = nil
+	} else {
+		item.vptr = y.SafeCopy(item.vptr, vs.Value)
+	}
 	if it.opt.PrefetchValues {
 		item.wg.Add(1)
 		go func() {
