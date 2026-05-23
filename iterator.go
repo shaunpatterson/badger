@@ -468,7 +468,12 @@ type Iterator struct {
 	data  list
 	waste list
 
-	lastKey []byte // Used to skip over multiple versions of the same key.
+	// lastKey stores the user-key (no 8-byte timestamp suffix) of the most
+	// recently considered candidate, used to skip subsequent older versions
+	// of the same user-key on AllVersions=false forward scans. Storing the
+	// user-key only avoids one ParseKey per same-key compare and a per-item
+	// 8-byte memcpy on the update.
+	lastKey []byte
 
 	// canSeeInternalKeys is true when this iterator can possibly surface a
 	// badger-internal key (e.g. "!badger!banned"). When false, parseItem
@@ -717,7 +722,13 @@ func (it *Iterator) parseItem() bool {
 	// If iterating in forward direction, then just checking the last key against current key would
 	// be sufficient.
 	if !it.opt.Reverse {
-		if y.SameKey(it.lastKey, key) {
+		// lastKey holds the user-key only. Compare against the user-key
+		// portion of the current full key (last 8 bytes are the ts).
+		// bytes.Equal already short-circuits on length mismatch, but the
+		// explicit length check lets the compiler hoist the bounds check
+		// out of the user-key slice and keeps the hot path branch-tight.
+		ukLen := len(key) - 8
+		if ukLen == len(it.lastKey) && bytes.Equal(key[:ukLen], it.lastKey) {
 			mi.Next()
 			return false
 		}
@@ -726,7 +737,7 @@ func (it *Iterator) parseItem() bool {
 		// Consider keys: a 5, b 7 (del), b 5. When iterating, lastKey = a.
 		// Then we see b 7, which is deleted. If we don't store lastKey = b, we'll then return b 5,
 		// which is wrong. Therefore, update lastKey here.
-		it.lastKey = y.SafeCopy(it.lastKey, key)
+		it.lastKey = y.SafeCopy(it.lastKey, key[:ukLen])
 	}
 
 FILL:
