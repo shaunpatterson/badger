@@ -1,0 +1,129 @@
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/skl
+cpu: Apple M4 Max
+BenchmarkReadWrite/frac_0-16         	       3	     14986 ns/op	   31008 B/op	      26 allocs/op
+BenchmarkReadWrite/frac_1-16         	       3	     17417 ns/op	   31509 B/op	      27 allocs/op
+BenchmarkReadWrite/frac_2-16         	       3	     17736 ns/op	   30981 B/op	      24 allocs/op
+BenchmarkReadWrite/frac_3-16         	       3	     18264 ns/op	   30981 B/op	      24 allocs/op
+BenchmarkReadWrite/frac_4-16         	       3	     17139 ns/op	   29200 B/op	      21 allocs/op
+BenchmarkReadWrite/frac_5-16         	       3	     26625 ns/op	   30533 B/op	      23 allocs/op
+BenchmarkReadWrite/frac_6-16         	       3	     16681 ns/op	   29600 B/op	      19 allocs/op
+BenchmarkReadWrite/frac_7-16         	       3	     18153 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkReadWrite/frac_8-16         	       3	     16431 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkReadWrite/frac_9-16         	       3	     18958 ns/op	   29157 B/op	      19 allocs/op
+BenchmarkReadWrite/frac_10-16        	       3	     16125 ns/op	   29898 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_0-16      	       3	     17375 ns/op	   31077 B/op	      24 allocs/op
+BenchmarkReadWriteMap/frac_1-16      	       3	     16403 ns/op	   30949 B/op	      23 allocs/op
+BenchmarkReadWriteMap/frac_2-16      	       3	     31472 ns/op	   29312 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_3-16      	       3	     16458 ns/op	   31098 B/op	      23 allocs/op
+BenchmarkReadWriteMap/frac_4-16      	       3	     15722 ns/op	   30949 B/op	      23 allocs/op
+BenchmarkReadWriteMap/frac_5-16      	       3	     17861 ns/op	   29312 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_6-16      	       3	     15361 ns/op	   29274 B/op	      19 allocs/op
+BenchmarkReadWriteMap/frac_7-16      	       3	     18486 ns/op	   29338 B/op	      20 allocs/op
+BenchmarkReadWriteMap/frac_8-16      	       3	     16056 ns/op	   29306 B/op	      19 allocs/op
+BenchmarkReadWriteMap/frac_9-16      	       3	     15375 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkReadWriteMap/frac_10-16     	       3	     24264 ns/op	   29152 B/op	      18 allocs/op
+BenchmarkWrite-16                    	       3	     16458 ns/op	   29205 B/op	      22 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/skl	0.205s
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/table
+cpu: Apple M4 Max
+BenchmarkBuilder/no_compression-16         	       3	  59725611 ns/op	1393.04 MB/s	228624717 B/op	  162599 allocs/op
+BenchmarkBuilder/encryption-16             	       3	  71999889 ns/op	1155.56 MB/s	379404640 B/op	  223054 allocs/op
+BenchmarkBuilder/snappy_compression-16     	       3	  65223792 ns/op	1275.61 MB/s	316055549 B/op	  162658 allocs/op
+BenchmarkBuilder/zstd_compression/level_1-16         	       3	  69424125 ns/op	1198.43 MB/s	309920877 B/op	  162673 allocs/op
+BenchmarkBuilder/zstd_compression/level_3-16         	       3	  65025625 ns/op	1279.50 MB/s	309919256 B/op	  162653 allocs/op
+BenchmarkBuilder/zstd_compression/level_15-16        	       3	  71886250 ns/op	1157.38 MB/s	309911357 B/op	  162645 allocs/op
+BenchmarkRead-16                                     	       3	 352121181 ns/op	110334725 B/op	  291417 allocs/op
+BenchmarkReadAndBuild-16                             	       3	 863482611 ns/op	1023183720 B/op	 2995072 allocs/op
+BenchmarkReadMerged-16                               	       3	 546241458 ns/op	113488741 B/op	  298779 allocs/op
+BenchmarkChecksum/CRC_1024-16                        	       3	       291.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_1024-16                   	       3	       111.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_1024-16                     	       3	      2055 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_2048-16                        	       3	       263.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_2048-16                   	       3	       180.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_2048-16                     	       3	      3222 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_4096-16                        	       3	       444.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_4096-16                   	       3	       194.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_4096-16                     	       3	      2056 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_8192-16                        	       3	       819.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_8192-16                   	       3	       416.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_8192-16                     	       3	      3778 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_16384-16                       	       3	      2014 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_16384-16                  	       3	       916.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_16384-16                    	       3	      7542 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_32768-16                       	       3	      3958 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_32768-16                  	       3	      1708 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_32768-16                    	       3	     12694 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_65536-16                       	       3	      7708 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_65536-16                  	       3	      2750 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_65536-16                    	       3	     23583 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_131072-16                      	       3	     14514 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_131072-16                 	       3	      6778 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_131072-16                   	       3	     47667 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_262144-16                      	       3	     28264 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_262144-16                 	       3	     12278 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_262144-16                   	       3	     90500 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/CRC_1048576-16                     	       3	     99542 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/xxHash64_1048576-16                	       3	     45195 ns/op	       0 B/op	       0 allocs/op
+BenchmarkChecksum/SHA256_1048576-16                  	       3	    345445 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRandomRead-16                               	       3	   1560903 ns/op	  738005 B/op	   16613 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/table	14.823s
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4/y
+cpu: Apple M4 Max
+BenchmarkBuffer/bytes-buffer-16         	       3	     20167 ns/op	    2389 B/op	       1 allocs/op
+BenchmarkBuffer/page-buffer/page-size-1024-16         	       3	      1597 ns/op	    1048 B/op	       2 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4/y	0.227s
+goos: darwin
+goarch: arm64
+pkg: github.com/dgraph-io/badger/v4
+cpu: Apple M4 Max
+BenchmarkIteratePrefixSingleKey/Key_lookups-16         	       3	      7639 ns/op	    1754 B/op	      21 allocs/op
+--- BENCH: BenchmarkIteratePrefixSingleKey/Key_lookups-16
+    iterator_test.go:387: Inner b.N: 1
+    iterator_test.go:387: Inner b.N: 3
+BenchmarkReadWrite/0.1,0064-16                         	       3	   3045417 ns/op	   15138 B/op	     249 allocs/op
+BenchmarkReadWrite/0.2,0064-16                         	       3	   1690528 ns/op	   14738 B/op	     243 allocs/op
+BenchmarkReadWrite/0.5,0064-16                         	       3	   1670264 ns/op	   14941 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,0064-16                         	       3	   1703972 ns/op	   15112 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,0128-16                         	       3	   1723292 ns/op	   15005 B/op	     246 allocs/op
+BenchmarkReadWrite/0.2,0128-16                         	       3	   1780917 ns/op	   14752 B/op	     242 allocs/op
+BenchmarkReadWrite/0.5,0128-16                         	       3	   3712445 ns/op	   15042 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,0128-16                         	       3	   1739278 ns/op	   15146 B/op	     249 allocs/op
+BenchmarkReadWrite/0.1,0256-16                         	       3	   1717305 ns/op	   15221 B/op	     245 allocs/op
+BenchmarkReadWrite/0.2,0256-16                         	       3	   1816639 ns/op	   15282 B/op	     246 allocs/op
+BenchmarkReadWrite/0.5,0256-16                         	       3	   1736583 ns/op	   15314 B/op	     247 allocs/op
+BenchmarkReadWrite/1.0,0256-16                         	       3	   1750014 ns/op	   15522 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,0512-16                         	       3	   1779625 ns/op	   15922 B/op	     246 allocs/op
+BenchmarkReadWrite/0.2,0512-16                         	       3	   1713736 ns/op	   15912 B/op	     245 allocs/op
+BenchmarkReadWrite/0.5,0512-16                         	       3	   1681667 ns/op	   15736 B/op	     244 allocs/op
+BenchmarkReadWrite/1.0,0512-16                         	       3	   1677014 ns/op	   16600 B/op	     249 allocs/op
+BenchmarkReadWrite/0.1,1024-16                         	       3	   1675375 ns/op	   16648 B/op	     242 allocs/op
+BenchmarkReadWrite/0.2,1024-16                         	       3	   3020139 ns/op	   17264 B/op	     247 allocs/op
+BenchmarkReadWrite/0.5,1024-16                         	       3	   3047556 ns/op	   17442 B/op	     246 allocs/op
+BenchmarkReadWrite/1.0,1024-16                         	       3	   3056611 ns/op	   18082 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,2048-16                         	       3	   1659958 ns/op	   18794 B/op	     242 allocs/op
+BenchmarkReadWrite/0.2,2048-16                         	       3	   1671403 ns/op	   19736 B/op	     246 allocs/op
+BenchmarkReadWrite/0.5,2048-16                         	       3	   1783875 ns/op	   20509 B/op	     248 allocs/op
+BenchmarkReadWrite/1.0,2048-16                         	       3	   1710042 ns/op	   21368 B/op	     250 allocs/op
+BenchmarkReadWrite/0.1,4096-16                         	       3	   1797083 ns/op	   23666 B/op	     245 allocs/op
+BenchmarkReadWrite/0.2,4096-16                         	       3	   1683125 ns/op	   23594 B/op	     244 allocs/op
+BenchmarkReadWrite/0.5,4096-16                         	       3	   1602695 ns/op	   25160 B/op	     245 allocs/op
+BenchmarkReadWrite/1.0,4096-16                         	       3	   1667986 ns/op	   28610 B/op	     251 allocs/op
+BenchmarkReadWrite/0.1,8192-16                         	       3	   1566389 ns/op	   32178 B/op	     243 allocs/op
+BenchmarkReadWrite/0.2,8192-16                         	       3	   1696861 ns/op	   35237 B/op	     242 allocs/op
+BenchmarkReadWrite/0.5,8192-16                         	       3	   1679042 ns/op	   41818 B/op	     251 allocs/op
+BenchmarkReadWrite/1.0,8192-16                         	       3	   1782028 ns/op	   41704 B/op	     249 allocs/op
+BenchmarkReadWrite/0.1,16384-16                        	       3	   1746139 ns/op	   49736 B/op	     247 allocs/op
+BenchmarkReadWrite/0.2,16384-16                        	       3	   1742403 ns/op	   55469 B/op	     244 allocs/op
+BenchmarkReadWrite/0.5,16384-16                        	       3	   1737722 ns/op	   68002 B/op	     251 allocs/op
+BenchmarkReadWrite/1.0,16384-16                        	       3	   1750056 ns/op	   68157 B/op	     253 allocs/op
+PASS
+ok  	github.com/dgraph-io/badger/v4	2.239s
