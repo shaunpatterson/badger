@@ -727,6 +727,11 @@ func (it *Iterator) parseItem() bool {
 		// bytes.Equal already short-circuits on length mismatch, but the
 		// explicit length check lets the compiler hoist the bounds check
 		// out of the user-key slice and keeps the hot path branch-tight.
+		//
+		// len(key) >= 8 is a badger-wide invariant: every key in the LSM is
+		// stored with an 8-byte timestamp suffix via y.KeyWithTs, and
+		// y.ParseTs(key) above already relies on this (it indexes
+		// key[len(key)-8:]). No defensive check is needed here.
 		ukLen := len(key) - 8
 		if ukLen == len(it.lastKey) && bytes.Equal(key[:ukLen], it.lastKey) {
 			mi.Next()
@@ -741,9 +746,12 @@ func (it *Iterator) parseItem() bool {
 	}
 
 FILL:
-	// If deleted, advance and return. We fetch vs (and reuse key from the
-	// enclosing scope, or refetch after Next on the reverse goto below) so
-	// that fill does not have to call mi.Value() / mi.Key() a second time.
+	// Invariant on entry to FILL: `key` is mi.Key() at the *current* iitr
+	// position. The only goto FILL (below, reverse path) refreshes `key`
+	// after mi.Next(); the fall-through entry from above never advances the
+	// iterator between `key := mi.Key()` and reaching FILL. fill() can
+	// therefore safely reuse the caller-supplied key without re-calling
+	// mi.Key().
 	vs := mi.Value()
 	if isDeletedOrExpired(vs.Meta, vs.ExpiresAt) {
 		mi.Next()
