@@ -6,6 +6,7 @@
 package badger
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -393,6 +394,114 @@ func TestRegressionPrefetchValuesTrue(t *testing.T) {
 				seen++
 			}
 			require.Equal(t, 5, seen)
+			return nil
+		}))
+	})
+}
+
+// TestRegressionHasPrefixShortPrefixFallback covers the hasPrefix fallback
+// branch where the user-supplied prefix is longer than userKey (len(p) >
+// len(key)-8). The short-circuit "len(key) >= len(p)+8" must be false so we
+// take the ParseKey path and correctly return false (no spurious match
+// against ts bytes).
+func TestRegressionHasPrefixShortPrefixFallback(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		// Single short key — userKey is 1 byte.
+		txnSet(t, db, []byte("a"), []byte("v"), 0)
+
+		require.NoError(t, db.View(func(txn *Txn) error {
+			opt := DefaultIteratorOptions
+			// Prefix is longer than the single existing userKey "a". The
+			// optimized hasPrefix must take the ParseKey fallback (because
+			// len(key) < len(prefix)+8) and return false — no key matches.
+			opt.Prefix = []byte("abcdefghij") // 10 bytes, longer than "a"
+			it := txn.NewIterator(opt)
+			defer it.Close()
+			count := 0
+			for it.Rewind(); it.Valid(); it.Next() {
+				count++
+			}
+			require.Equal(t, 0, count, "no key should match an over-long prefix")
+			return nil
+		}))
+	})
+}
+
+// TestRegressionHasPrefixFastPath covers the optimized hasPrefix path where
+// len(prefix) fits within userKey: it must still correctly identify matching
+// and non-matching keys, equivalent to the old ParseKey-based check.
+func TestRegressionHasPrefixFastPath(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		txnSet(t, db, []byte("alpha/1"), []byte("v"), 0)
+		txnSet(t, db, []byte("alpha/2"), []byte("v"), 0)
+		txnSet(t, db, []byte("beta/1"), []byte("v"), 0)
+
+		require.NoError(t, db.View(func(txn *Txn) error {
+			opt := DefaultIteratorOptions
+			opt.Prefix = []byte("alpha/")
+			it := txn.NewIterator(opt)
+			defer it.Close()
+			count := 0
+			for it.Rewind(); it.Valid(); it.Next() {
+				require.True(t, bytes.HasPrefix(it.Item().Key(), opt.Prefix))
+				count++
+			}
+			require.Equal(t, 2, count, "alpha/ should match both alpha/1 and alpha/2")
+			return nil
+		}))
+	})
+}
+
+// TestRegressionTrackReadsReadOnly verifies that iterators built from
+// read-only transactions skip the addReadKey path entirely (trackReads
+// remains false at construction). Functionally, the iterator still works:
+// keys/values are visible, and no conflict-detection state is mutated.
+func TestRegressionTrackReadsReadOnly(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		txnSet(t, db, []byte("k1"), []byte("v1"), 0)
+		txnSet(t, db, []byte("k2"), []byte("v2"), 0)
+
+		require.NoError(t, db.View(func(txn *Txn) error {
+			// db.View creates a read-only txn (update=false).
+			require.False(t, txn.update, "View must give a read-only txn")
+			it := txn.NewIterator(DefaultIteratorOptions)
+			defer it.Close()
+			require.False(t, it.trackReads, "read-only iterator must not track reads")
+
+			seen := 0
+			for it.Rewind(); it.Valid(); it.Next() {
+				_ = it.Item().Key() // would call addReadKey on a write txn
+				seen++
+			}
+			require.Equal(t, 2, seen)
+
+			// Confirm no reads were recorded on the txn (would matter for
+			// conflict detection on a write txn).
+			require.Empty(t, txn.reads, "no reads should be recorded on read-only txn")
+			return nil
+		}))
+	})
+}
+
+// TestRegressionTrackReadsWriteTxn verifies that iterators built from
+// read-write transactions still call addReadKey, populating the conflict
+// detection set so Update transactions can detect concurrent writes.
+func TestRegressionTrackReadsWriteTxn(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		txnSet(t, db, []byte("k1"), []byte("v1"), 0)
+		txnSet(t, db, []byte("k2"), []byte("v2"), 0)
+
+		require.NoError(t, db.Update(func(txn *Txn) error {
+			// db.Update creates a read-write txn (update=true).
+			require.True(t, txn.update, "Update must give a read-write txn")
+			it := txn.NewIterator(DefaultIteratorOptions)
+			defer it.Close()
+			require.True(t, it.trackReads, "read-write iterator must track reads")
+
+			for it.Rewind(); it.Valid(); it.Next() {
+				_ = it.Item() // calls addReadKey
+			}
+			require.NotEmpty(t, txn.reads, "reads should be recorded for conflict detection")
 			return nil
 		}))
 	})

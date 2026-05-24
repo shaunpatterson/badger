@@ -413,3 +413,57 @@ func BenchmarkIteratePrefixSingleKey(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkRollupKeyIterator simulates the dgraph rollup pattern:
+// per-key transaction + NewKeyIterator(AllVersions=true, PrefetchValues=false)
+// + Seek + walk all versions. This is the same shape as
+// posting/mvcc.go:readFromDisk in dgraph (called for every rollup and every
+// posting-list cache miss). Many keys are written with multiple versions so
+// the AllVersions walk has real work to do.
+func BenchmarkRollupKeyIterator(b *testing.B) {
+	dir, err := os.MkdirTemp(".", "badger-bench")
+	y.Check(err)
+	defer removeDir(dir)
+	// dgraph runs in managed-txn mode with conflict detection off.
+	opts := getTestOptions(dir).WithDetectConflicts(false)
+	opts.managedTxns = true
+	db, err := Open(opts)
+	y.Check(err)
+	defer db.Close()
+
+	const (
+		N            = 5000 // distinct keys
+		versionsPerK = 8    // versions per key (rollup-typical)
+	)
+	bkey := func(i int) []byte { return []byte(fmt.Sprintf("k:%010d", i)) }
+	val := []byte("OK")
+
+	for v := 1; v <= versionsPerK; v++ {
+		batch := db.NewWriteBatchAt(uint64(v))
+		for i := 0; i < N; i++ {
+			y.Check(batch.Set(bkey(i), val))
+		}
+		y.Check(batch.Flush())
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		key := bkey(rand.Intn(N))
+		txn := db.NewTransactionAt(math.MaxUint64, false)
+		opt := DefaultIteratorOptions
+		opt.AllVersions = true
+		opt.PrefetchValues = false
+		itr := txn.NewKeyIterator(key, opt)
+		count := 0
+		for itr.Seek(key); itr.Valid(); itr.Next() {
+			_ = itr.Item().Version()
+			count++
+		}
+		if count != versionsPerK {
+			b.Fatalf("expected %d versions, got %d for key %s", versionsPerK, count, key)
+		}
+		itr.Close()
+		txn.Discard()
+	}
+}

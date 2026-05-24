@@ -481,6 +481,12 @@ type Iterator struct {
 	// Computed once at construction from opt.Prefix.
 	canSeeInternalKeys bool
 
+	// trackReads mirrors txn.update at construction time. Read tracking is
+	// only needed for conflict detection on write transactions; read-only
+	// txns (txn.update=false, as managed-txn callers like dgraph's rollup
+	// loop use) can skip the per-Item addReadKey call entirely.
+	trackReads bool
+
 	closed  bool
 	scanned int // Used to estimate the size of data scanned by iterator.
 
@@ -534,11 +540,12 @@ func (txn *Txn) NewIterator(opt IteratorOptions) *Iterator {
 	}
 	iters = txn.db.lc.appendIterators(iters, &opt) // This will increment references.
 	res := &Iterator{
-		txn:               txn,
-		iitr:              table.NewMergeIterator(iters, opt.Reverse),
-		opt:               opt,
-		readTs:            txn.readTs,
+		txn:                txn,
+		iitr:               table.NewMergeIterator(iters, opt.Reverse),
+		opt:                opt,
+		readTs:             txn.readTs,
 		canSeeInternalKeys: canSeeInternalKeys(opt.Prefix),
+		trackReads:         txn.update,
 	}
 	return res
 }
@@ -578,8 +585,12 @@ func (it *Iterator) newItem() *Item {
 // Item returns pointer to the current key-value pair.
 // This item is only valid until it.Next() gets called.
 func (it *Iterator) Item() *Item {
-	tx := it.txn
-	tx.addReadKey(it.item.Key())
+	// addReadKey is a no-op for read-only transactions (txn.update=false). Skip
+	// the call entirely on read-only iterators — saves a function call on the
+	// hottest path (every Item() call during version walks).
+	if it.trackReads {
+		it.txn.addReadKey(it.item.Key())
+	}
 	return it.item
 }
 
@@ -822,10 +833,23 @@ func (it *Iterator) fill(item *Item, key []byte, vs *y.ValueStruct) {
 func hasPrefix(it *Iterator) bool {
 	// We shouldn't check prefix in case the iterator is going in reverse. Since in reverse we expect
 	// people to append items to the end of prefix.
-	if !it.opt.Reverse && len(it.opt.Prefix) > 0 {
-		return bytes.HasPrefix(y.ParseKey(it.iitr.Key()), it.opt.Prefix)
+	if it.opt.Reverse || len(it.opt.Prefix) == 0 {
+		return true
 	}
-	return true
+	// iitr.Key() is the internal key = userKey + 8-byte ts. When len(Prefix) fits
+	// entirely within the userKey portion (len(key) >= len(Prefix)+8), then
+	// bytes.HasPrefix(internalKey, Prefix) is equivalent to
+	// bytes.HasPrefix(y.ParseKey(internalKey), Prefix) — the prefix can only
+	// match bytes that lie before the ts suffix. This elides one y.ParseKey
+	// (nil-check + sub + slice) per iterator Next on the hot dgraph rollup loop.
+	key := it.iitr.Key()
+	p := it.opt.Prefix
+	if len(key) >= len(p)+8 {
+		return bytes.HasPrefix(key, p)
+	}
+	// Prefix is longer than userKey — must reparse so we don't spuriously match
+	// against ts bytes.
+	return bytes.HasPrefix(y.ParseKey(key), p)
 }
 
 func (it *Iterator) prefetch() {
@@ -855,7 +879,7 @@ func (it *Iterator) Seek(key []byte) {
 	if it.iitr == nil {
 		return
 	}
-	if len(key) > 0 {
+	if len(key) > 0 && it.trackReads {
 		it.txn.addReadKey(key)
 	}
 	for i := it.data.pop(); i != nil; i = it.data.pop() {
