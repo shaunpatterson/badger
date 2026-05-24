@@ -532,8 +532,8 @@ func (txn *Txn) NewIterator(opt IteratorOptions) *Iterator {
 	txn.numIterators.Add(1)
 
 	// TODO: If Prefix is set, only pick those memtables which have keys with the prefix.
-	tables, decr := txn.db.getMemTables()
-	defer decr()
+	tables := txn.db.getMemTables()
+	defer decrMemTables(tables)
 	txn.db.vlog.incrIteratorCount()
 	// Pre-size for the deterministic memtable-pass plus the optional
 	// pending-writes iterator. appendIterators may still grow the slice
