@@ -381,8 +381,18 @@ func (s *Skiplist) Get(key []byte) y.ValueStruct {
 
 // NewIterator returns a skiplist iterator.  You have to Close() the iterator.
 func (s *Skiplist) NewIterator() *Iterator {
+	it := &Iterator{}
+	it.init(s)
+	return it
+}
+
+// init attaches an Iterator to a Skiplist and bumps the refcount. Shared
+// between NewIterator (heap-allocated *Iterator) and NewUniIterator (Iterator
+// embedded by value inside UniIterator) so any future setup added here
+// applies uniformly to both construction paths.
+func (it *Iterator) init(s *Skiplist) {
 	s.IncrRef()
-	return &Iterator{list: s}
+	it.list = s
 }
 
 // MemSize returns the size of the Skiplist in terms of how much memory is used within its internal
@@ -458,17 +468,25 @@ func (s *Iterator) SeekToLast() {
 // UniIterator is a unidirectional memtable iterator. It is a thin wrapper around
 // Iterator. We like to keep Iterator as before, because it is more powerful and
 // we might support bidirectional iterators in the future.
+//
+// iter is embedded by value (not by pointer) so NewUniIterator fits in a
+// single heap allocation. Do not copy UniIterator: the embedded Iterator
+// holds a reference to the Skiplist which must be released exactly once via
+// Close. All methods take pointer receivers, so normal usage through
+// *UniIterator is safe; only value-copying would diverge state.
 type UniIterator struct {
-	iter     *Iterator
+	iter     Iterator
 	reversed bool
 }
 
-// NewUniIterator returns a UniIterator.
+// NewUniIterator returns a UniIterator. Compared to allocating an Iterator
+// separately and wrapping it, embedding by value halves the per-memtable
+// allocation count for iterator construction. The hot path for dgraph's
+// posting list rollup constructs ~6 of these per cache miss.
 func (s *Skiplist) NewUniIterator(reversed bool) *UniIterator {
-	return &UniIterator{
-		iter:     s.NewIterator(),
-		reversed: reversed,
-	}
+	u := &UniIterator{reversed: reversed}
+	u.iter.init(s)
+	return u
 }
 
 // Next implements y.Interface
