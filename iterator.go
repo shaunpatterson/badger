@@ -34,7 +34,11 @@ type Item struct {
 	version   uint64
 	expiresAt uint64
 
-	slice *y.Slice // Used only during prefetching.
+	// slice is lazily allocated; only touch via yieldItemValue/prefetchValue,
+	// which nil-check and initialize on first use. Iterators that never read
+	// values (KeyOnly or PrefetchValues=false with no Item.Value/ValueCopy
+	// calls — e.g. dgraph's posting list rollup) skip this allocation entirely.
+	slice *y.Slice
 	next  *Item
 	txn   *Txn
 
@@ -577,7 +581,11 @@ func (txn *Txn) NewKeyIterator(key []byte, opt IteratorOptions) *Iterator {
 func (it *Iterator) newItem() *Item {
 	item := it.waste.pop()
 	if item == nil {
-		item = &Item{slice: new(y.Slice), txn: it.txn}
+		// Skip the eager new(y.Slice): yieldItemValue lazy-allocates slice
+		// before any actual use. Iterators that never read values (KeyOnly,
+		// or AllVersions=true with PrefetchValues=false like dgraph's posting
+		// list rollup) never touch slice, so the wrapper is pure overhead.
+		item = &Item{txn: it.txn}
 	}
 	return item
 }
