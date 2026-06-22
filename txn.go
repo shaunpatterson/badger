@@ -349,6 +349,16 @@ func exceedsSize(prefix string, max int64, key []byte) error {
 }
 
 func (txn *Txn) modify(e *Entry) error {
+	if bytes.HasPrefix(e.Key, badgerPrefix) {
+		return ErrInvalidKey
+	}
+	return txn.modifyInternal(e)
+}
+
+// modifyInternal is modify without the reserved-prefix guard, used by internal
+// features (e.g. DeleteRange) that intentionally write keys under the !badger!
+// prefix.
+func (txn *Txn) modifyInternal(e *Entry) error {
 	const maxKeySize = 65000
 
 	switch {
@@ -358,8 +368,6 @@ func (txn *Txn) modify(e *Entry) error {
 		return ErrDiscardedTxn
 	case len(e.Key) == 0:
 		return ErrEmptyKey
-	case bytes.HasPrefix(e.Key, badgerPrefix):
-		return ErrInvalidKey
 	case len(e.Key) > maxKeySize:
 		// Key length can't be more than uint16, as determined by table::header.  To
 		// keep things safe and allow badger move prefix and a timestamp suffix, let's
@@ -464,37 +472,20 @@ func (txn *Txn) Get(key []byte) (item *Item, rerr error) {
 		txn.addReadKey(key)
 	}
 
-	// upperTs caps the version we are willing to consider. It starts at readTs
-	// and is lowered below any range-tombstone entry that shadows this exact key
-	// (a range tombstone is stored keyed at its `begin` bound), so we fall
-	// through to the real, older user value at that key.
-	upperTs := txn.readTs
-	var vs y.ValueStruct
-	for {
-		seek := y.KeyWithTs(key, upperTs)
-		var err error
-		vs, err = txn.db.get(seek)
-		if err != nil {
-			return nil, y.Wrapf(err, "DB::Get key: %q", key)
-		}
-		if vs.Value == nil && vs.Meta == 0 {
-			return nil, ErrKeyNotFound
-		}
-		// The range-tombstone entry itself must never surface as a user value;
-		// look below it for an older real version of this key.
-		if vs.Meta&bitRangeDelete != 0 {
-			if vs.Version == 0 {
-				return nil, ErrKeyNotFound
-			}
-			upperTs = vs.Version - 1
-			continue
-		}
-		break
+	seek := y.KeyWithTs(key, txn.readTs)
+	vs, err := txn.db.get(seek)
+	if err != nil {
+		return nil, y.Wrapf(err, "DB::Get key: %q", key)
+	}
+	if vs.Value == nil && vs.Meta == 0 {
+		return nil, ErrKeyNotFound
 	}
 	if isDeletedOrExpired(vs.Meta, vs.ExpiresAt) {
 		return nil, ErrKeyNotFound
 	}
 	// Hide the key if a range tombstone covers it at a newer version <= readTs.
+	// Range-tombstone entries live under the reserved !badger! prefix, so they
+	// can never be returned here as a candidate for a user key.
 	if txn.db.coveredByRangeTombstone(key, vs.Version, txn.readTs) {
 		return nil, ErrKeyNotFound
 	}
@@ -614,13 +605,15 @@ func (txn *Txn) commitAndSend() (func() error, error) {
 	}
 
 	// Capture any range tombstones in this txn so we can register them in the
-	// in-memory index once the write is durably acked. We capture from entries
-	// (whose Key is now suffixed with the commit ts) so begin/version are final.
+	// in-memory index once the write is durably acked. The entry key is
+	// rangeDelPrefix||begin suffixed with the commit ts; strip both to recover
+	// the user-facing begin bound.
 	var pendingTombstones []rangeTombstone
 	for _, e := range entries {
 		if e.meta&bitRangeDelete != 0 {
+			userKey := y.ParseKey(e.Key)
 			pendingTombstones = append(pendingTombstones, rangeTombstone{
-				Begin: y.ParseKey(e.Key),
+				Begin: y.Copy(userKey[len(rangeDelPrefix):]),
 				End:   y.Copy(e.Value),
 				Ts:    y.ParseTs(e.Key),
 			})

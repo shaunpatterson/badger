@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"sync/atomic"
 
+	"github.com/dgraph-io/badger/v4/table"
 	"github.com/dgraph-io/badger/v4/y"
 )
 
@@ -63,8 +64,7 @@ func (ix *rangeTombstoneIndex) empty() bool {
 }
 
 // covered reports whether user key `key` at candidate version `version`, read at
-// `readTs`, is hidden by some range tombstone (the max-covering-Ts rule reduces
-// to "any covering tombstone exists": if one covers, the key is hidden).
+// `readTs`, is hidden by some range tombstone.
 func (ix *rangeTombstoneIndex) covered(key []byte, version, readTs uint64) bool {
 	p := ix.tombstones.Load()
 	if p == nil {
@@ -117,6 +117,11 @@ func (db *DB) DeleteRangeAt(begin, end []byte, commitTs uint64) error {
 
 // DeleteRange adds a range tombstone over [begin, end) to the transaction's
 // pending writes. It composes with other operations in the same commit.
+//
+// The tombstone is persisted as a single entry keyed under the reserved
+// rangeDelPrefix (begin in the key suffix, end in the value), so it is an
+// internal key — never visible to user reads — and the index can be rebuilt at
+// Open() by scanning only that prefix.
 func (txn *Txn) DeleteRange(begin, end []byte) error {
 	if len(begin) == 0 {
 		return ErrEmptyKey
@@ -125,42 +130,68 @@ func (txn *Txn) DeleteRange(begin, end []byte) error {
 		return ErrInvalidRange
 	}
 	e := &Entry{
-		Key:   begin,
+		Key:   rangeDelKey(begin),
 		Value: y.Copy(end),
 		meta:  bitRangeDelete,
 	}
-	return txn.modify(e)
+	return txn.modifyInternal(e)
 }
 
-// rebuildRangeTombstoneIndex scans the DB for persisted range-tombstone entries
-// and repopulates the in-memory index. Called once at Open(). Mirrors
-// initBannedNamespaces: it uses an internal, all-versions iterator so every
-// tombstone version is captured and the tombstone entries (which are otherwise
-// hidden from user reads) are visible to the scan.
-func (db *DB) rebuildRangeTombstoneIndex() error {
-	return db.View(func(txn *Txn) error {
-		iopts := DefaultIteratorOptions
-		iopts.PrefetchValues = false
-		iopts.AllVersions = true
-		iopts.InternalAccess = true
-		it := txn.NewIterator(iopts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			if item.meta&bitRangeDelete == 0 {
-				continue
-			}
-			begin := item.KeyCopy(nil)
-			end, err := item.ValueCopy(nil)
-			if err != nil {
-				return err
-			}
-			db.rangeTombstones.add(rangeTombstone{
-				Begin: begin,
-				End:   end,
-				Ts:    item.version,
-			})
-		}
-		return nil
-	})
+// rangeDelKey builds the internal storage key (sans timestamp) for a range
+// tombstone's begin bound: rangeDelPrefix || begin.
+func rangeDelKey(begin []byte) []byte {
+	key := make([]byte, 0, len(rangeDelPrefix)+len(begin))
+	key = append(key, rangeDelPrefix...)
+	key = append(key, begin...)
+	return key
 }
+
+// rebuildRangeTombstoneIndex repopulates the in-memory index from persisted
+// range-tombstone entries. Called once at Open(). It scans ONLY the reserved
+// rangeDelPrefix via a low-level merge iterator over the memtables and LSM
+// levels (NOT txn.NewIterator), so it neither perturbs user-facing read metrics
+// nor pays the cost of scanning the whole DB.
+func (db *DB) rebuildRangeTombstoneIndex() error {
+	tables, decr := db.getMemTables()
+	defer decr()
+
+	var iters []y.Iterator
+	for _, mt := range tables {
+		iters = append(iters, mt.sl.NewUniIterator(false))
+	}
+	iopts := DefaultIteratorOptions
+	iopts.Prefix = rangeDelPrefix // Restricts which SST tables are opened.
+	iopts.AllVersions = true
+	iters = db.lc.appendIterators(iters, &iopts)
+
+	mi := table.NewMergeIterator(iters, false)
+	if mi == nil {
+		// No memtables or tables (e.g. a fresh read-only DB): nothing to rebuild.
+		return nil
+	}
+	defer mi.Close()
+
+	for mi.Seek(y.KeyWithTs(rangeDelPrefix, maxUint64)); mi.Valid(); mi.Next() {
+		key := mi.Key()
+		userKey := y.ParseKey(key)
+		if !bytes.HasPrefix(userKey, rangeDelPrefix) {
+			// Keys are sorted by user key ascending; once past the prefix, stop.
+			if bytes.Compare(userKey, rangeDelPrefix) > 0 {
+				break
+			}
+			continue
+		}
+		vs := mi.Value()
+		if vs.Meta&bitRangeDelete == 0 {
+			continue
+		}
+		db.rangeTombstones.add(rangeTombstone{
+			Begin: y.Copy(userKey[len(rangeDelPrefix):]),
+			End:   y.Copy(vs.Value),
+			Ts:    y.ParseTs(key),
+		})
+	}
+	return nil
+}
+
+const maxUint64 = ^uint64(0)

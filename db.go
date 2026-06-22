@@ -37,6 +37,11 @@ var (
 	badgerPrefix = []byte("!badger!")       // Prefix for internal keys used by badger.
 	txnKey       = []byte("!badger!txn")    // For indicating end of entries in txn.
 	bannedNsKey  = []byte("!badger!banned") // For storing the banned namespaces.
+	// rangeDelPrefix namespaces range-tombstone entries. Storing them under the
+	// reserved !badger! prefix makes them internal keys (so they never surface
+	// to user reads) and lets Open() rebuild the index by scanning ONLY this
+	// prefix instead of the whole DB. See range_delete.go.
+	rangeDelPrefix = []byte("!badger!rangedel")
 )
 
 type closers struct {

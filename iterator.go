@@ -623,17 +623,6 @@ func (it *Iterator) parseItem() bool {
 		return false
 	}
 
-	// Skip range-tombstone entries. They are internal metadata (keyed at the
-	// range's begin bound) and must never surface as a user key. Skipping here,
-	// before lastKey is updated, ensures an older real version of this exact key
-	// is still returned (unlike bitDelete, a range tombstone does not hide the
-	// key it happens to be keyed at). The scan that rebuilds the index sets
-	// InternalAccess to read these entries directly.
-	if !it.opt.InternalAccess && mi.Value().Meta&bitRangeDelete != 0 {
-		mi.Next()
-		return false
-	}
-
 	// Skip any versions which are beyond the readTs.
 	version := y.ParseTs(key)
 	// Ignore everything that is above the readTs and below or at the sinceTs.
