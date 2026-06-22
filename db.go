@@ -109,6 +109,7 @@ type DB struct {
 
 	orc              *oracle
 	bannedNamespaces *lockedKeys
+	rangeTombstones  rangeTombstoneIndex
 	threshold        *vlogThreshold
 
 	pub        *publisher
@@ -373,6 +374,10 @@ func Open(opt Options) (*DB, error) {
 
 	if err := db.initBannedNamespaces(); err != nil {
 		return db, fmt.Errorf("While setting banned keys: %w", err)
+	}
+
+	if err := db.rebuildRangeTombstoneIndex(); err != nil {
+		return db, fmt.Errorf("While rebuilding range tombstone index: %w", err)
 	}
 
 	db.closers.writes = z.NewCloser(1)

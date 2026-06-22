@@ -464,15 +464,38 @@ func (txn *Txn) Get(key []byte) (item *Item, rerr error) {
 		txn.addReadKey(key)
 	}
 
-	seek := y.KeyWithTs(key, txn.readTs)
-	vs, err := txn.db.get(seek)
-	if err != nil {
-		return nil, y.Wrapf(err, "DB::Get key: %q", key)
-	}
-	if vs.Value == nil && vs.Meta == 0 {
-		return nil, ErrKeyNotFound
+	// upperTs caps the version we are willing to consider. It starts at readTs
+	// and is lowered below any range-tombstone entry that shadows this exact key
+	// (a range tombstone is stored keyed at its `begin` bound), so we fall
+	// through to the real, older user value at that key.
+	upperTs := txn.readTs
+	var vs y.ValueStruct
+	for {
+		seek := y.KeyWithTs(key, upperTs)
+		var err error
+		vs, err = txn.db.get(seek)
+		if err != nil {
+			return nil, y.Wrapf(err, "DB::Get key: %q", key)
+		}
+		if vs.Value == nil && vs.Meta == 0 {
+			return nil, ErrKeyNotFound
+		}
+		// The range-tombstone entry itself must never surface as a user value;
+		// look below it for an older real version of this key.
+		if vs.Meta&bitRangeDelete != 0 {
+			if vs.Version == 0 {
+				return nil, ErrKeyNotFound
+			}
+			upperTs = vs.Version - 1
+			continue
+		}
+		break
 	}
 	if isDeletedOrExpired(vs.Meta, vs.ExpiresAt) {
+		return nil, ErrKeyNotFound
+	}
+	// Hide the key if a range tombstone covers it at a newer version <= readTs.
+	if txn.db.coveredByRangeTombstone(key, vs.Version, txn.readTs) {
 		return nil, ErrKeyNotFound
 	}
 
@@ -590,6 +613,20 @@ func (txn *Txn) commitAndSend() (func() error, error) {
 		entries = append(entries, e)
 	}
 
+	// Capture any range tombstones in this txn so we can register them in the
+	// in-memory index once the write is durably acked. We capture from entries
+	// (whose Key is now suffixed with the commit ts) so begin/version are final.
+	var pendingTombstones []rangeTombstone
+	for _, e := range entries {
+		if e.meta&bitRangeDelete != 0 {
+			pendingTombstones = append(pendingTombstones, rangeTombstone{
+				Begin: y.ParseKey(e.Key),
+				End:   y.Copy(e.Value),
+				Ts:    y.ParseTs(e.Key),
+			})
+		}
+	}
+
 	req, err := txn.db.sendToWriteCh(entries)
 	if err != nil {
 		orc.doneCommit(commitTs)
@@ -601,6 +638,11 @@ func (txn *Txn) commitAndSend() (func() error, error) {
 		// We can't defer doneCommit above, because it is being called from a
 		// callback here.
 		orc.doneCommit(commitTs)
+		if err == nil {
+			for _, rt := range pendingTombstones {
+				txn.db.rangeTombstones.add(rt)
+			}
+		}
 		return err
 	}
 	return ret, nil

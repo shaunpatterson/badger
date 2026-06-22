@@ -40,6 +40,11 @@ const (
 	bitDiscardEarlierVersions byte = 1 << 2 // Set if earlier versions can be discarded.
 	// Set if item shouldn't be discarded via compactions (used by merge operator)
 	bitMergeEntry byte = 1 << 3
+	// bitRangeDelete marks an entry as a range tombstone: its key is the begin
+	// bound, its value is the end bound, and it deletes [begin, end) for all
+	// keys written at a version below this entry's commit timestamp. Set by
+	// DeleteRange. (Bit 1<<5 remains free.)
+	bitRangeDelete byte = 1 << 4
 	// The MSB 2 bits are for transactions.
 	bitTxn    byte = 1 << 6 // Set if the entry is part of a txn.
 	bitFinTxn byte = 1 << 7 // Set if the entry is to indicate end of txn in value log.

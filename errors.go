@@ -43,6 +43,10 @@ var (
 	// reserved for internal usage.
 	ErrInvalidKey = stderrors.New("Key is using a reserved !badger! prefix")
 
+	// ErrInvalidRange is returned by DeleteRange when begin is not strictly less
+	// than end.
+	ErrInvalidRange = stderrors.New("DeleteRange requires begin < end")
+
 	// ErrBannedKey is returned if the read/write key belongs to any banned namespace.
 	ErrBannedKey = stderrors.New("Key is using the banned prefix")
 
