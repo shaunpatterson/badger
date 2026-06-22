@@ -693,19 +693,33 @@ func (txn *Txn) MultiGet(keys [][]byte) ([]KeyResult, error) {
 	}
 
 	// Value-log resolution. db.vlog.Read takes a per-file read lock and is
-	// safe to call concurrently; each task writes a disjoint version slot, so
-	// no synchronization beyond the WaitGroup is needed. To stay
-	// byte-identical with the serial ValueCopy path, vlog read errors are
-	// swallowed (logged inside Read) and leave the value empty, exactly as
-	// item.ValueCopy would.
+	// safe to call concurrently; each task writes a disjoint version slot, and
+	// the single collection pass above has fully completed, so res and its
+	// Versions slices are no longer mutated while the workers run. The only
+	// shared state is the first-error capture below.
 	db := txn.db
+	var (
+		errMu    sync.Mutex
+		firstErr error
+	)
+	recordErr := func(err error) {
+		errMu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		errMu.Unlock()
+	}
+	// readTask resolves one deferred value-log read into its version slot.
+	// A read error is propagated to the caller (matching the serial
+	// item.ValueCopy path, which returned the error rather than yielding an
+	// empty value); the file read lock is always released.
 	readTask := func(t vlogTask, slice *y.Slice) {
 		buf, cb, err := db.vlog.Read(t.vp, slice)
-		if err == nil {
+		if err != nil {
+			recordErr(err)
+		} else {
 			res[t.keyIdx].Versions[t.verIdx].Value = y.SafeCopy(nil, buf)
 		}
-		// Always release the file read lock, matching the serial path's
-		// deferred runCallback(cb).
 		runCallback(cb)
 	}
 
@@ -745,6 +759,9 @@ func (txn *Txn) MultiGet(keys [][]byte) ([]KeyResult, error) {
 			}()
 		}
 		wg.Wait()
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return res, nil
 }
