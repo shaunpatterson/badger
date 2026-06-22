@@ -16,21 +16,31 @@ key written *before* the tombstone's commit timestamp.
 
 ## Representation
 
-A range tombstone is a **normal LSM entry**, so it rides the existing write path
-with zero new write-stall surface:
+A range tombstone is a **normal LSM entry** stored under a **reserved internal
+prefix**, so it rides the existing write path with zero new write-stall surface:
 
 ```
-key   = KeyWithTs(begin, commitTs)   // begin user-key + MVCC ts suffix
-meta  = bitRangeDelete  (1 << 4)     // previously-free meta bit
-value = end                          // the exclusive upper bound
+prefix = !badger!rangedel               // reserved, mirrors !badger!banned
+key    = KeyWithTs(prefix || begin, commitTs)
+meta   = bitRangeDelete  (1 << 4)       // previously-free meta bit
+value  = end                            // the exclusive upper bound
 ```
 
 Because it is an ordinary entry it:
 
-- flows through `txn.modify` → commit → `KeyWithTs` → memtable `Put` → WAL → L0
-  → compaction, with **no** `blockWrites`, memtable flush, or compaction halt;
+- flows through `txn.modifyInternal` → commit → `KeyWithTs` → memtable `Put` →
+  WAL → L0 → compaction, with **no** `blockWrites`, memtable flush, or
+  compaction halt;
 - gets a normal MVCC `commitTs` from the oracle;
 - is durable in the WAL/SST and **survives restart**.
+
+Storing it under the `!badger!` prefix means it is **already an internal key**:
+the existing `parseItem` / `Txn.Get` internal-key handling hides it from user
+reads for free (no bespoke per-entry skipping), and — crucially — the index can
+be rebuilt at `Open()` by scanning **only that prefix** rather than the whole DB.
+
+`txn.modify` rejects `!badger!`-prefixed keys; `DeleteRange` uses a sibling
+`txn.modifyInternal` that omits only that guard, keeping all other bookkeeping.
 
 ### In-memory interval index
 
@@ -41,8 +51,11 @@ small in-memory index `rangeTombstones` (db.go field). It is:
   readers load-and-scan with **no lock**; a `DeleteRange` commit builds a new
   slice (copy-on-write) and atomically stores it (writes are rare relative to
   reads);
-- **populated at `Open()`** by an internal `AllVersions` scan for entries whose
-  meta has `bitRangeDelete` (mirrors `initBannedNamespaces`);
+- **populated at `Open()`** by a low-level merge iterator scoped to
+  `rangeDelPrefix` over the memtables + LSM levels — **not** `txn.NewIterator`,
+  so it touches **no user-facing read metrics** and (via prefix-scoped
+  `pickTables`) opens only the relevant tables. Cost is O(tombstones), not
+  O(DB). Mirrors `initBannedNamespaces`'s prefix-only approach.
 - **updated on each `DeleteRange` commit** (after the write is acked).
 
 When `DeleteRange` is never used the slice is empty (nil); every read does one
@@ -80,21 +93,19 @@ We use the **max** such `T` among all covering tombstones. Worked example
 2. **Iterator** (iterator.go `parseItem`): for each candidate item
    (`userKey`@`V`), the same covering check; if covered, `Next()` and skip.
    `AllVersions` iterators still apply the check (a covered version is logically
-   deleted) — except internal scans used to rebuild the index, which set
-   `InternalAccess` and read the tombstone entries directly.
-3. **Hide the tombstone entries themselves.** The entry keyed at `begin` with
-   `bitRangeDelete` must never surface as a user key (it would otherwise shadow
-   or masquerade as a real key equal to `begin`). Both `Txn.Get` and `parseItem`
-   skip `bitRangeDelete` entries (continuing to older versions for that user key),
-   exactly like `bitDelete`, unless `InternalAccess` is set.
+   deleted), unless `InternalAccess` is set.
+3. **The tombstone entries themselves are hidden for free.** Because they live
+   under the `!badger!rangedel` prefix they are internal keys; the pre-existing
+   `parseItem` / `Txn.Get` internal-key filtering already excludes them from
+   user reads. No `bitRangeDelete`-specific skipping is needed in the read path.
 
-### Collision with a real key == begin
+### No collision with a real key == begin
 
-A genuine user key equal to `begin` and the tombstone entry are different
-*versions* of the same user key in the LSM. Because point `Get`/`parseItem`
-**skip** `bitRangeDelete` versions and keep searching older versions, the
-tombstone never shadows the real value. The interval index (not the entry's
-presence in the result stream) is what enforces range coverage.
+The tombstone is keyed at `!badger!rangedel || begin`, a different keyspace from
+the user key `begin`. They cannot shadow each other in `db.get`/`parseItem`, so
+a real key equal to `begin` is returned normally (and then hidden iff the
+interval index covers it). The interval index — not entry presence — enforces
+range coverage.
 
 ## Compaction (DEFERRED — documented, not in MVP)
 
@@ -114,9 +125,11 @@ enforced purely on the read side. Reclamation is a follow-up:
 
 ## Backward compatibility
 
-- New meta bit `1<<4` was previously unused; old SSTs never set it, so the
-  startup scan finds nothing and the index stays empty.
-- No on-disk format change (the tombstone is a normal entry).
+- New meta bit `1<<4` was previously unused; old SSTs never set it. The startup
+  scan reads only the `!badger!rangedel` prefix, which old DBs never wrote, so
+  it finds nothing and the index stays empty.
+- No on-disk format change (the tombstone is a normal entry under a reserved
+  prefix, exactly like banned namespaces).
 - If `DeleteRange` is never called: the index is empty and every read does a
   single empty-slice check — semantics and performance are unchanged.
 
