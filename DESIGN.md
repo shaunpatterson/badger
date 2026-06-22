@@ -100,17 +100,28 @@ For each version (newest-first), before the existing discard logic:
   drops everything older (existing logic already sets `skipKey` on this).
 
 On **key change / end**: if `haveAcc`, emit one combined operand
-(`bitMergeEntry` set, Version=`accTs`, ExpiresAt=`accExp`).
+(`bitMergeEntry` set — plus `bitDiscardEarlierVersions` if any folded operand carried
+it — Version=`accTs`, no TTL since only TTL-free operands are folded).
 
 ### Interactions
 
 - **bitDelete**: barrier; never fold across it. Pending operands above it are emitted
   as a single combined operand; the delete is preserved/handled by existing logic.
 - **bitDiscardEarlierVersions**: barrier; fold up to and including it, emit, then
-  older versions are dropped (`skipKey`) — matches the bit's meaning.
-- **expiry (ExpiresAt)**: expired operands are dropped from the chain. A merged base
-  keeps the base's TTL. A pure-operand output gets the min non-zero ExpiresAt of its
-  constituents (cannot outlive earliest-expiring part).
+  older versions are dropped (`skipKey`) — matches the bit's meaning. **The emitted
+  combined operand MUST carry this bit forward** (tracked via `mergeAccDiscard`).
+  Dropping it would let a later compaction/read fall through to an older base in a
+  lower level that the barrier is supposed to mask, diverging from the un-compacted
+  DB. (Regression-tested.)
+- **expiry (ExpiresAt)**: only TTL-free operands (`ExpiresAt == 0`) are folded. An
+  operand with a TTL is a **barrier** — TTL-free operands above it are emitted as one
+  combined operand, and the TTL operand passes through unchanged. This matches
+  read-time `iterateAndMerge`, which breaks at the first expired older version (so a
+  read at time `t` after an older operand's TTL but before a newer one's returns only
+  the operands above the expiry). Synthesizing a single TTL for the combined operand
+  (min/max of constituents) would silently diverge, so we refuse to fold across any
+  TTL. Already-expired operands and expired bases are likewise barriers. A merged base
+  keeps the base's own TTL.
 - **NumVersionsToKeep**: consumed operands do **not** count; only emitted entries
   (merged base, combined operand, deletes, pass-throughs) count.
 

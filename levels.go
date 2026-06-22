@@ -720,13 +720,21 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 	// is set). We accumulate merge operands for a single key (the tail of its
 	// version chain at or below discardTs) into one combined operand. acc holds the
 	// fold-so-far of the newer operands; mergeAccTs is the newest folded version;
-	// mergeAccExp is the smallest non-zero ExpiresAt seen among folded operands.
+	// mergeAccDiscard records whether any folded operand carried
+	// bitDiscardEarlierVersions, which must be preserved on the emitted operand so a
+	// later read still stops there instead of falling through to an older base that
+	// lives in a level not part of this compaction.
+	//
+	// Only operands with no TTL (ExpiresAt == 0) are ever folded (see the fold
+	// switch). This guarantees the combined operand never needs to carry an expiry,
+	// and exactly matches the read-time merge semantics (an operand with a TTL acts
+	// as a barrier, just like a delete), rather than silently approximating it.
 	mergeOp := s.kv.opt.CompactionMerge
 	var (
 		mergeAcc         []byte
 		haveMergeAcc     bool
 		mergeAccTs       uint64
-		mergeAccExp      uint64
+		mergeAccDiscard  bool
 		mergeAccUserMeta byte
 	)
 	// emitMergeAcc writes the pending combined operand (still marked as an operand
@@ -736,28 +744,22 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 		if !haveMergeAcc {
 			return
 		}
+		meta := byte(bitMergeEntry)
+		if mergeAccDiscard {
+			// Preserve the discard-earlier barrier on the combined operand.
+			meta |= bitDiscardEarlierVersions
+		}
 		vsOut := y.ValueStruct{
-			Meta:      bitMergeEntry,
-			UserMeta:  mergeAccUserMeta,
-			ExpiresAt: mergeAccExp,
-			Value:     mergeAcc,
+			Meta:     meta,
+			UserMeta: mergeAccUserMeta,
+			Value:    mergeAcc,
 		}
 		builder.Add(y.KeyWithTs(userKey, mergeAccTs), vsOut, 0)
 		mergeAcc = nil
 		haveMergeAcc = false
 		mergeAccTs = 0
-		mergeAccExp = 0
+		mergeAccDiscard = false
 		mergeAccUserMeta = 0
-	}
-	// foldMin keeps the smallest non-zero expiry among folded operands.
-	foldMinExp := func(cur, next uint64) uint64 {
-		if next == 0 {
-			return cur
-		}
-		if cur == 0 || next < cur {
-			return next
-		}
-		return cur
 	}
 
 	addKeys := func(builder *table.Builder) {
@@ -838,10 +840,12 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 				isOperand := vs.Meta&bitMergeEntry > 0
 				isDelete := vs.Meta&bitDelete > 0
 				switch {
-				case isOperand && !isDelete && !isExpired:
-					// Fold this operand into the accumulator and consume it. Expired
-					// operands are dropped (skip folding) and fall through to the
-					// existing discard logic.
+				case isOperand && !isDelete && !isExpired && vs.ExpiresAt == 0:
+					// Fold this operand into the accumulator and consume it. Operands
+					// with a TTL (ExpiresAt != 0) are NOT folded: they fall through to
+					// the existing logic and act as a barrier (an older operand reaching
+					// its TTL stops the read-time fold, so collapsing across it would
+					// diverge). Already-expired operands likewise fall through.
 					b, err := s.materializeValue(vs)
 					if err != nil {
 						s.kv.opt.Errorf("compaction merge: failed to read operand value: %v", err)
@@ -854,22 +858,26 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 					} else {
 						mergeAcc = mergeOp(b, mergeAcc)
 					}
-					mergeAccExp = foldMinExp(mergeAccExp, vs.ExpiresAt)
+					if vs.Meta&bitDiscardEarlierVersions > 0 {
+						mergeAccDiscard = true
+					}
 					haveMergeAcc = true
 					numSkips++
 					// If this operand says all earlier versions can be discarded,
-					// emit the combined operand now and skip the rest of the chain.
+					// emit the combined operand now (carrying the discard bit) and skip
+					// the rest of the chain.
 					if vs.Meta&bitDiscardEarlierVersions > 0 {
 						emitMergeAcc(builder, y.ParseKey(it.Key()))
 						skipKey = y.SafeCopy(skipKey, it.Key())
 					}
 					continue
-				case isDelete && haveMergeAcc:
-					// A delete tombstone is a barrier: operands above it must not fold
-					// onto anything below it. Emit the pending combined operand above
-					// the tombstone, then let the existing logic handle the delete.
+				case (isDelete || (isOperand && (isExpired || vs.ExpiresAt != 0))) && haveMergeAcc:
+					// A barrier below the accumulated operands: a delete tombstone, an
+					// expired operand, or a TTL-bearing operand. Operands above it must
+					// not fold across it, so emit the pending combined operand above the
+					// barrier, then let the existing logic handle the barrier entry.
 					emitMergeAcc(builder, y.ParseKey(it.Key()))
-				case !isOperand && !isDelete && haveMergeAcc:
+				case !isOperand && !isDelete && !isExpired && haveMergeAcc:
 					// A complete base value at/below discardTs: fold the accumulated
 					// operands onto it and emit a single complete value. Older versions
 					// are then dropped.
@@ -879,6 +887,9 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 						return
 					}
 					out := mergeOp(base, mergeAcc)
+					// The base value's TTL/meta wins for the merged complete value;
+					// clear the operand and value-pointer bits. (We only fold TTL-free
+					// operands, so there is no operand TTL to reconcile here.)
 					vsOut := y.ValueStruct{
 						Meta:      vs.Meta &^ (bitMergeEntry | bitValuePointer),
 						UserMeta:  vs.UserMeta,
@@ -888,7 +899,7 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 					builder.Add(y.KeyWithTs(y.ParseKey(it.Key()), version), vsOut, 0)
 					mergeAcc = nil
 					haveMergeAcc = false
-					mergeAccTs, mergeAccExp, mergeAccUserMeta = 0, 0, 0
+					mergeAccTs, mergeAccDiscard, mergeAccUserMeta = 0, false, 0
 					skipKey = y.SafeCopy(skipKey, it.Key())
 					numKeys++
 					continue
