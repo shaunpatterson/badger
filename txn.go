@@ -484,9 +484,12 @@ func (txn *Txn) Get(key []byte) (item *Item, rerr error) {
 		return nil, ErrKeyNotFound
 	}
 	// Hide the key if a range tombstone covers it at a newer version <= readTs.
-	// Range-tombstone entries live under the reserved !badger! prefix, so they
-	// can never be returned here as a candidate for a user key.
-	if txn.db.coveredByRangeTombstone(key, vs.Version, txn.readTs) {
+	// Range tombstones apply to user data only; never to reserved !badger! keys
+	// (the iterator gates the same check on !InternalAccess). Range-tombstone
+	// entries themselves live under the reserved prefix, so they can never be
+	// returned here as a candidate for a user key.
+	if !bytes.HasPrefix(key, badgerPrefix) &&
+		txn.db.coveredByRangeTombstone(key, vs.Version, txn.readTs) {
 		return nil, ErrKeyNotFound
 	}
 
@@ -627,15 +630,18 @@ func (txn *Txn) commitAndSend() (func() error, error) {
 	}
 	ret := func() error {
 		err := req.Wait()
-		// Wait before marking commitTs as done.
-		// We can't defer doneCommit above, because it is being called from a
-		// callback here.
-		orc.doneCommit(commitTs)
+		// Publish range tombstones to the in-memory index BEFORE doneCommit
+		// advances txnMark. doneCommit makes the commit visible to readers at
+		// readTs >= commitTs; if the index were updated after, a concurrent
+		// reader could momentarily see data the tombstone should hide.
 		if err == nil {
 			for _, rt := range pendingTombstones {
 				txn.db.rangeTombstones.add(rt)
 			}
 		}
+		// We can't defer doneCommit above, because it is being called from a
+		// callback here.
+		orc.doneCommit(commitTs)
 		return err
 	}
 	return ret, nil

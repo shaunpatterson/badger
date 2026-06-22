@@ -6,6 +6,7 @@
 package badger
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"sort"
@@ -266,6 +267,69 @@ func TestDeleteRangeReverseIterator(t *testing.T) {
 		require.NoError(t, err)
 		// Reverse order, covered keys removed.
 		require.Equal(t, []string{"key09", "key08", "key07", "key02", "key01", "key00"}, keys)
+	})
+}
+
+// TestDeleteRangeImmediateVisibility: once DeleteRange returns, a brand-new
+// transaction (readTs >= the tombstone's commitTs) must already see the covered
+// keys as hidden — with NO sleep. This guards the ordering of index publication
+// vs. commit visibility (the index must be published before doneCommit advances
+// txnMark). Run under -race to catch the window.
+func TestDeleteRangeImmediateVisibility(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		for i := 0; i < 20; i++ {
+			txnSet(t, db, []byte(fmt.Sprintf("v%02d", i)), []byte("x"), 0x00)
+		}
+
+		// Commit the DeleteRange; the moment it returns the index must be live.
+		require.NoError(t, db.DeleteRange([]byte("v05"), []byte("v15")))
+
+		// New txn (readTs > tombstone commitTs) — no sleep, no retry.
+		err := db.View(func(txn *Txn) error {
+			for i := 5; i < 15; i++ {
+				_, gerr := txn.Get([]byte(fmt.Sprintf("v%02d", i)))
+				require.ErrorIs(t, gerr, ErrKeyNotFound,
+					"covered key v%02d must already be hidden", i)
+			}
+			// Uncovered keys still present.
+			for _, i := range []int{4, 15} {
+				_, gerr := txn.Get([]byte(fmt.Sprintf("v%02d", i)))
+				require.NoError(t, gerr)
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	})
+}
+
+// TestDeleteRangeDoesNotHideInternalKeys: a range spanning the reserved prefix
+// must not hide internal (!badger!) keys from the InternalAccess read path.
+func TestDeleteRangeDoesNotHideInternalKeys(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		// A range that lexically spans the reserved !badger! prefix.
+		require.NoError(t, db.DeleteRange([]byte("!"), []byte("\xff")))
+
+		// The tombstone itself is persisted as an internal key under
+		// !badger!rangedel; an internal-access iterator must still find it,
+		// i.e. coverage must not have hidden internal keys.
+		var foundInternal bool
+		err := db.View(func(txn *Txn) error {
+			iopts := DefaultIteratorOptions
+			iopts.InternalAccess = true
+			iopts.AllVersions = true
+			iopts.PrefetchValues = false
+			it := txn.NewIterator(iopts)
+			defer it.Close()
+			for it.Rewind(); it.Valid(); it.Next() {
+				if bytes.HasPrefix(it.Item().Key(), rangeDelPrefix) {
+					foundInternal = true
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.True(t, foundInternal,
+			"internal range-tombstone key must remain visible to InternalAccess")
 	})
 }
 
