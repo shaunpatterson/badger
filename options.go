@@ -101,6 +101,23 @@ type Options struct {
 	// NamespaceOffset specifies the offset from where the next 8 bytes contains the namespace.
 	NamespaceOffset int
 
+	// CompactionMerge, if non-nil, enables compaction-time associative merging.
+	// During compaction, operand versions of a key (entries written with
+	// Entry.WithMergeOperand, marked by the internal merge meta bit) that lie at
+	// or below the compaction discard timestamp are folded into a single value
+	// using this function. The fold is applied in version order (oldest first):
+	//
+	//	value = CompactionMerge(existing, operand)
+	//
+	// where existing is the older accumulated value and operand the newer operand
+	// being merged in. The function MUST be associative so that the single forward
+	// (newest-first) compaction pass produces the same result as applying every
+	// operand in order.
+	//
+	// When nil (the default) compaction behavior is unchanged: merge operands are
+	// preserved and only folded at read time by GetMergeOperator.
+	CompactionMerge MergeFunc
+
 	// Magic version used by the application using badger to ensure that it doesn't open the DB
 	// with incompatible data format.
 	ExternalMagicVersion uint16
@@ -378,6 +395,15 @@ func (opt Options) WithValueDir(val string) Options {
 // The default value of SyncWrites is false.
 func (opt Options) WithSyncWrites(val bool) Options {
 	opt.SyncWrites = val
+	return opt
+}
+
+// WithCompactionMerge returns a new Options value with CompactionMerge set to the
+// given associative merge function, enabling compaction-time folding of merge
+// operands. See the CompactionMerge field for the full contract. Passing nil
+// disables the feature (the default), leaving compaction behavior unchanged.
+func (opt Options) WithCompactionMerge(f MergeFunc) Options {
+	opt.CompactionMerge = f
 	return opt
 }
 

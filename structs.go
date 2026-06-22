@@ -213,3 +213,14 @@ func (e *Entry) withMergeBit() *Entry {
 	e.meta = bitMergeEntry
 	return e
 }
+
+// WithMergeOperand marks Entry e as a merge operand (a delta) rather than a
+// complete value. When the DB is opened with Options.CompactionMerge set, operand
+// entries for a key are folded together during compaction using that function.
+// Without CompactionMerge set, operands are preserved and only folded at read time
+// by a GetMergeOperator. The merge bit is OR-ed in so other meta bits (e.g. a TTL
+// set via WithTTL) are retained.
+func (e *Entry) WithMergeOperand() *Entry {
+	e.meta |= bitMergeEntry
+	return e
+}

@@ -640,6 +640,24 @@ func (s *levelsController) checkOverlap(tables []*table.Table, lev int) bool {
 	return false
 }
 
+// materializeValue returns the concrete value bytes for vs, reading from the value
+// log if the value is stored there (bitValuePointer). It is only used by the
+// compaction-time merge fold, and only for entries that will actually be folded.
+func (s *levelsController) materializeValue(vs y.ValueStruct) ([]byte, error) {
+	if vs.Meta&bitValuePointer == 0 {
+		return vs.Value, nil
+	}
+	var vp valuePointer
+	vp.Decode(vs.Value)
+	buf, cb, err := s.kv.vlog.Read(vp, nil)
+	defer runCallback(cb)
+	if err != nil {
+		return nil, err
+	}
+	// Copy out before the value-log lock is released by the callback.
+	return y.SafeCopy(nil, buf), nil
+}
+
 // subcompact runs a single sub-compaction, iterating over the specified key-range only.
 //
 // We use splits to do a single compaction concurrently. If we have >= 3 tables
@@ -698,6 +716,50 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 		firstKeyHasDiscardSet bool
 	)
 
+	// Compaction-time associative merge state (only used when opt.CompactionMerge
+	// is set). We accumulate merge operands for a single key (the tail of its
+	// version chain at or below discardTs) into one combined operand. acc holds the
+	// fold-so-far of the newer operands; mergeAccTs is the newest folded version;
+	// mergeAccExp is the smallest non-zero ExpiresAt seen among folded operands.
+	mergeOp := s.kv.opt.CompactionMerge
+	var (
+		mergeAcc         []byte
+		haveMergeAcc     bool
+		mergeAccTs       uint64
+		mergeAccExp      uint64
+		mergeAccUserMeta byte
+	)
+	// emitMergeAcc writes the pending combined operand (still marked as an operand
+	// via bitMergeEntry) for userKey, then clears the accumulator. Called at a key
+	// boundary or barrier when no complete base value consumed the accumulator.
+	emitMergeAcc := func(builder *table.Builder, userKey []byte) {
+		if !haveMergeAcc {
+			return
+		}
+		vsOut := y.ValueStruct{
+			Meta:      bitMergeEntry,
+			UserMeta:  mergeAccUserMeta,
+			ExpiresAt: mergeAccExp,
+			Value:     mergeAcc,
+		}
+		builder.Add(y.KeyWithTs(userKey, mergeAccTs), vsOut, 0)
+		mergeAcc = nil
+		haveMergeAcc = false
+		mergeAccTs = 0
+		mergeAccExp = 0
+		mergeAccUserMeta = 0
+	}
+	// foldMin keeps the smallest non-zero expiry among folded operands.
+	foldMinExp := func(cur, next uint64) uint64 {
+		if next == 0 {
+			return cur
+		}
+		if cur == 0 || next < cur {
+			return next
+		}
+		return cur
+	}
+
 	addKeys := func(builder *table.Builder) {
 		timeStart := time.Now()
 		var numKeys, numSkips uint64
@@ -723,6 +785,12 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 			}
 
 			if !y.SameKey(it.Key(), lastKey) {
+				// Flush any pending merge accumulator for the previous key before we
+				// move on (or break). The accumulator only ever holds operands of the
+				// previous key, so it is safe to emit them now under lastKey.
+				if mergeOp != nil && haveMergeAcc {
+					emitMergeAcc(builder, y.ParseKey(lastKey))
+				}
 				firstKeyHasDiscardSet = false
 				if len(kr.right) > 0 && y.CompareKeys(it.Key(), kr.right) >= 0 {
 					break
@@ -760,6 +828,72 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 			version := y.ParseTs(it.Key())
 
 			isExpired := isDeletedOrExpired(vs.Meta, vs.ExpiresAt)
+
+			// Compaction-time associative merge fold. We only fold the tail of the
+			// version chain at or below discardTs, to preserve the snapshot view of
+			// any running transaction (we must never collapse a version a reader
+			// could still need). Iteration is newest-first, so by the time we are at
+			// or below discardTs we are at the chain tail.
+			if mergeOp != nil && version <= discardTs {
+				isOperand := vs.Meta&bitMergeEntry > 0
+				isDelete := vs.Meta&bitDelete > 0
+				switch {
+				case isOperand && !isDelete && !isExpired:
+					// Fold this operand into the accumulator and consume it. Expired
+					// operands are dropped (skip folding) and fall through to the
+					// existing discard logic.
+					b, err := s.materializeValue(vs)
+					if err != nil {
+						s.kv.opt.Errorf("compaction merge: failed to read operand value: %v", err)
+						return
+					}
+					if !haveMergeAcc {
+						mergeAcc = y.SafeCopy(nil, b)
+						mergeAccTs = version
+						mergeAccUserMeta = vs.UserMeta
+					} else {
+						mergeAcc = mergeOp(b, mergeAcc)
+					}
+					mergeAccExp = foldMinExp(mergeAccExp, vs.ExpiresAt)
+					haveMergeAcc = true
+					numSkips++
+					// If this operand says all earlier versions can be discarded,
+					// emit the combined operand now and skip the rest of the chain.
+					if vs.Meta&bitDiscardEarlierVersions > 0 {
+						emitMergeAcc(builder, y.ParseKey(it.Key()))
+						skipKey = y.SafeCopy(skipKey, it.Key())
+					}
+					continue
+				case isDelete && haveMergeAcc:
+					// A delete tombstone is a barrier: operands above it must not fold
+					// onto anything below it. Emit the pending combined operand above
+					// the tombstone, then let the existing logic handle the delete.
+					emitMergeAcc(builder, y.ParseKey(it.Key()))
+				case !isOperand && !isDelete && haveMergeAcc:
+					// A complete base value at/below discardTs: fold the accumulated
+					// operands onto it and emit a single complete value. Older versions
+					// are then dropped.
+					base, err := s.materializeValue(vs)
+					if err != nil {
+						s.kv.opt.Errorf("compaction merge: failed to read base value: %v", err)
+						return
+					}
+					out := mergeOp(base, mergeAcc)
+					vsOut := y.ValueStruct{
+						Meta:      vs.Meta &^ (bitMergeEntry | bitValuePointer),
+						UserMeta:  vs.UserMeta,
+						ExpiresAt: vs.ExpiresAt,
+						Value:     out,
+					}
+					builder.Add(y.KeyWithTs(y.ParseKey(it.Key()), version), vsOut, 0)
+					mergeAcc = nil
+					haveMergeAcc = false
+					mergeAccTs, mergeAccExp, mergeAccUserMeta = 0, 0, 0
+					skipKey = y.SafeCopy(skipKey, it.Key())
+					numKeys++
+					continue
+				}
+			}
 
 			// Do not discard entries inserted by merge operator. These entries will be
 			// discarded once they're merged
@@ -816,6 +950,11 @@ func (s *levelsController) subcompact(it y.Iterator, kr keyRange, cd compactDef,
 			default:
 				builder.Add(it.Key(), vs, vp.Len)
 			}
+		}
+		// Flush any pending merge accumulator for the final key once the iterator is
+		// exhausted (the in-loop key-boundary flush only fires on a key change/break).
+		if mergeOp != nil && haveMergeAcc {
+			emitMergeAcc(builder, y.ParseKey(lastKey))
 		}
 		s.kv.opt.Debugf("[%d] LOG Compact. Added %d keys. Skipped %d keys. Iteration took: %v",
 			cd.compactorId, numKeys, numSkips, time.Since(timeStart).Round(time.Millisecond))
