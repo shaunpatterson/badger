@@ -243,6 +243,32 @@ func TestDeleteRangeRestart(t *testing.T) {
 	require.Equal(t, []byte("v"), val)
 }
 
+// TestDeleteRangeReverseIterator: reverse iteration also hides covered keys.
+func TestDeleteRangeReverseIterator(t *testing.T) {
+	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
+		for i := 0; i < 10; i++ {
+			txnSet(t, db, []byte(fmt.Sprintf("key%02d", i)), []byte("v"), 0x00)
+		}
+		require.NoError(t, db.DeleteRange([]byte("key03"), []byte("key07")))
+
+		var keys []string
+		err := db.View(func(txn *Txn) error {
+			opt := DefaultIteratorOptions
+			opt.Reverse = true
+			opt.PrefetchValues = false
+			it := txn.NewIterator(opt)
+			defer it.Close()
+			for it.Rewind(); it.Valid(); it.Next() {
+				keys = append(keys, string(it.Item().KeyCopy(nil)))
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		// Reverse order, covered keys removed.
+		require.Equal(t, []string{"key09", "key08", "key07", "key02", "key01", "key00"}, keys)
+	})
+}
+
 // TestDeleteRangeInvalid: begin >= end is rejected.
 func TestDeleteRangeInvalid(t *testing.T) {
 	runBadgerTest(t, nil, func(t *testing.T, db *DB) {
