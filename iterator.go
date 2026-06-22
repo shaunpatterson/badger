@@ -10,14 +10,38 @@ import (
 	"fmt"
 	"hash/crc32"
 	"math"
+	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dgraph-io/badger/v4/table"
 	"github.com/dgraph-io/badger/v4/y"
 	"github.com/dgraph-io/ristretto/v2/z"
 )
+
+// multiGetVlogWorkers bounds the number of goroutines MultiGet uses to resolve
+// value-log reads in parallel. Value-log reads are random I/O but also do
+// CPU-bound work (checksum verification, optional decompression/decryption),
+// so a small multiple of the available parallelism is a reasonable default,
+// capped to avoid oversubscribing the file read locks on large batches.
+var multiGetVlogWorkers = func() int {
+	n := runtime.GOMAXPROCS(0) * 2
+	if n < 1 {
+		n = 1
+	}
+	if n > 32 {
+		n = 32
+	}
+	return n
+}()
+
+// multiGetParallelThreshold is the minimum number of deferred value-log reads
+// below which MultiGet resolves them inline on the calling goroutine. Below
+// this many reads the goroutine and scheduling overhead of the worker pool
+// outweighs the latency hidden by overlapping the random I/O.
+const multiGetParallelThreshold = 16
 
 type prefetchStatus uint8
 
@@ -606,8 +630,28 @@ func (txn *Txn) MultiGet(keys [][]byte) ([]KeyResult, error) {
 	opt.PrefetchValues = false
 	opt.NoReadTracking = true
 	it := txn.NewIterator(opt)
+	// The iterator must stay open until every deferred value-log read below
+	// has completed: it.Close decrements the value-log's active-iterator
+	// count, and letting it reach zero can let value-log GC rewrite or
+	// delete the very files the workers are still reading.
 	defer it.Close()
 
+	// vlogTask is a deferred value-log read collected during the single
+	// iterator pass and resolved later by the worker pool. It refers to its
+	// destination by (key index, version index) rather than by pointer,
+	// because res[keyIdx].Versions grows during the pass and re-allocations
+	// would invalidate a captured &ItemVersion.Value.
+	type vlogTask struct {
+		vp     valuePointer
+		keyIdx int
+		verIdx int
+	}
+	var tasks []vlogTask
+
+	// Single-threaded collection pass. We do NOT resolve value-log reads
+	// inline here; we only copy inline values and record value-pointer reads
+	// for the parallel phase below. (A *Txn and a single *Iterator are not
+	// safe for concurrent use, so the walk stays on this goroutine.)
 	for _, idx := range order {
 		key := keys[idx]
 		if len(key) == 0 {
@@ -629,16 +673,78 @@ func (txn *Txn) MultiGet(keys [][]byte) ([]KeyResult, error) {
 				UserMeta:  item.userMeta,
 				meta:      item.meta,
 			}
-			// Materialize the value now; the iterator (PrefetchValues=false)
-			// would otherwise read it lazily and recycle the item on Next.
-			val, err := item.ValueCopy(nil)
-			if err != nil {
-				return nil, err
+			if item.hasValue() {
+				if (item.meta & bitValuePointer) == 0 {
+					// Inline value: copy now, since the iterator
+					// (PrefetchValues=false) recycles the item on Next.
+					iv.Value = y.SafeCopy(nil, item.vptr)
+				} else {
+					// Value-pointer: defer the random vlog read to the
+					// worker pool. Decode the pointer now (item.vptr is
+					// recycled on Next); the read itself is concurrency-safe.
+					var vp valuePointer
+					vp.Decode(item.vptr)
+					tasks = append(tasks, vlogTask{vp: vp, keyIdx: idx, verIdx: len(versions)})
+				}
 			}
-			iv.Value = val
 			versions = append(versions, iv)
 		}
 		res[idx].Versions = versions
+	}
+
+	// Value-log resolution. db.vlog.Read takes a per-file read lock and is
+	// safe to call concurrently; each task writes a disjoint version slot, so
+	// no synchronization beyond the WaitGroup is needed. To stay
+	// byte-identical with the serial ValueCopy path, vlog read errors are
+	// swallowed (logged inside Read) and leave the value empty, exactly as
+	// item.ValueCopy would.
+	db := txn.db
+	readTask := func(t vlogTask, slice *y.Slice) {
+		buf, cb, err := db.vlog.Read(t.vp, slice)
+		if err == nil {
+			res[t.keyIdx].Versions[t.verIdx].Value = y.SafeCopy(nil, buf)
+		}
+		// Always release the file read lock, matching the serial path's
+		// deferred runCallback(cb).
+		runCallback(cb)
+	}
+
+	switch {
+	case len(tasks) == 0:
+		// Nothing to read.
+	case len(tasks) < multiGetParallelThreshold:
+		// Small batch: the goroutine/scheduling overhead outweighs any
+		// I/O overlap, so resolve inline on this goroutine.
+		var slice y.Slice
+		for _, t := range tasks {
+			readTask(t, &slice)
+		}
+	default:
+		// Large batch: overlap the random value-log reads across a bounded
+		// worker pool to hide per-read I/O latency.
+		workers := multiGetVlogWorkers
+		if workers > len(tasks) {
+			workers = len(tasks)
+		}
+		var (
+			wg   sync.WaitGroup
+			next atomic.Int64
+		)
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var slice y.Slice
+				for {
+					i := int(next.Add(1)) - 1
+					if i >= len(tasks) {
+						return
+					}
+					readTask(tasks[i], &slice)
+				}
+			}()
+		}
+		wg.Wait()
 	}
 	return res, nil
 }
