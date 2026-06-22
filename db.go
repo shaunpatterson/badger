@@ -489,11 +489,19 @@ func (db *DB) cleanup() {
 	if db.closers.updateSize != nil {
 		db.closers.updateSize.Signal()
 	}
+	// Fence and JOIN the GC goroutines before signaling writes, mirroring the
+	// ordering in close(): an in-flight rewrite drives db.get + batchSet through
+	// the write path, so it must finish (or never start) while writes are still
+	// live. valueGC.SignalAndWait() fences garbageCh and waits out any in-flight
+	// GC; autoVlogGC.SignalAndWait() then joins the scheduler goroutine so it
+	// can't kick off a fresh rewrite during teardown. We use SignalAndWait (not
+	// bare Signal) here precisely to avoid leaking a mid-rewrite goroutine on
+	// the Open-failure path.
 	if db.closers.valueGC != nil {
-		db.closers.valueGC.Signal()
+		db.closers.valueGC.SignalAndWait()
 	}
 	if db.closers.autoVlogGC != nil {
-		db.closers.autoVlogGC.Signal()
+		db.closers.autoVlogGC.SignalAndWait()
 	}
 	if db.closers.writes != nil {
 		db.closers.writes.Signal()
@@ -1304,13 +1312,14 @@ func (db *DB) runVlogGCLoop(lc *z.Closer) {
 		case <-lc.HasBeenClosed():
 			return
 		case <-ticker.C:
-			db.runVlogGCTick(db.opt.VLogGCDiscardRatio)
+			db.runVlogGCTick(db.opt.VLogGCDiscardRatio, lc)
 		}
 	}
 }
 
 // runVlogGCTick performs a single scheduler iteration. It is factored out so
-// tests can drive GC deterministically without waiting on the ticker.
+// tests can drive GC deterministically without waiting on the ticker (tests
+// pass a nil closer).
 //
 // The idle gate: if any compaction is currently in flight we skip this tick
 // entirely. Background GC does a per-entry db.get + batchSet during rewrite, so
@@ -1318,13 +1327,30 @@ func (db *DB) runVlogGCLoop(lc *z.Closer) {
 // quiet. The counter is advisory (a compaction may start the instant after we
 // read it) which is fine -- rewrite re-verifies every entry, so a race here can
 // never corrupt data, only do slightly more or less work.
-func (db *DB) runVlogGCTick(discardRatio float64) {
+func (db *DB) runVlogGCTick(discardRatio float64, lc *z.Closer) {
 	if db.lc != nil && db.lc.compactionsInFlight.Load() > 0 {
 		return
 	}
 	// Mirror the recommended manual loop: keep collecting until a run reports
-	// nothing left to do (ErrNoRewrite) or another GC is busy (ErrRejected).
+	// nothing left to do or another GC is busy.
+	//
+	// Termination: runGC returns a non-nil error when there is nothing to
+	// reclaim -- ErrNoRewrite when pickLog finds no file at/above the discard
+	// threshold, or ErrRejected when another GC already holds garbageCh. It
+	// returns nil only after actually rewriting (and thus shrinking) a file, so
+	// every nil iteration makes progress and the loop provably terminates. This
+	// is the same contract dgraph's manual RunValueLogGC loop relies on.
 	for {
+		// Stay responsive to shutdown between rewrites: Close() signals this
+		// closer, and we'd rather bail here than start another (potentially
+		// long) rewrite, even though garbageCh would also fence us shortly.
+		if lc != nil {
+			select {
+			case <-lc.HasBeenClosed():
+				return
+			default:
+			}
+		}
 		err := db.vlog.runGC(discardRatio)
 		if err != nil {
 			return

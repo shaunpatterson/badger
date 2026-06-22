@@ -122,7 +122,7 @@ func TestAutoVLogGC_Triggers(t *testing.T) {
 
 	// Drive the scheduler tick directly (deterministic; equivalent to one wake-up
 	// when the LSM is idle). It loops until ErrNoRewrite.
-	db.runVlogGCTick(opt.VLogGCDiscardRatio)
+	db.runVlogGCTick(opt.VLogGCDiscardRatio, nil)
 
 	after := numVlogFiles(db)
 	require.True(t, after < before,
@@ -215,13 +215,13 @@ func TestAutoVLogGC_IdleGate(t *testing.T) {
 
 	// Simulate a busy foreground: pretend a compaction is in flight.
 	db.lc.compactionsInFlight.Add(1)
-	db.runVlogGCTick(opt.VLogGCDiscardRatio)
+	db.runVlogGCTick(opt.VLogGCDiscardRatio, nil)
 	require.Equal(t, before, numVlogFiles(db),
 		"idle gate should skip GC while a compaction is in flight")
 
 	// Clear the load; now the same tick should reclaim.
 	db.lc.compactionsInFlight.Add(-1)
-	db.runVlogGCTick(opt.VLogGCDiscardRatio)
+	db.runVlogGCTick(opt.VLogGCDiscardRatio, nil)
 	require.True(t, numVlogFiles(db) < before,
 		"GC should proceed once the compaction load clears: before=%d after=%d",
 		before, numVlogFiles(db))
@@ -280,4 +280,38 @@ func TestAutoVLogGC_RealTick(t *testing.T) {
 
 	// Clean shutdown: SignalAndWait inside Close must drain the goroutine.
 	require.NoError(t, db.Close())
+}
+
+// TestAutoVLogGC_OpenCloseChurn opens with a tiny VLogGCInterval and immediately
+// Closes, repeatedly. This exercises the spawn -> (maybe a tick fires) ->
+// shutdown ordering for the scheduler goroutine. Run under -race, it guards
+// against goroutine leaks and any send-on-closed / use-after-teardown races in
+// the autoVlogGC closer handling (both the normal close() path and, by
+// construction of the same join ordering, the cleanup() error path).
+func TestAutoVLogGC_OpenCloseChurn(t *testing.T) {
+	for iter := 0; iter < 10; iter++ {
+		dir, err := os.MkdirTemp("", "badger-test")
+		require.NoError(t, err)
+
+		opt := getTestOptions(dir)
+		opt.ValueLogFileSize = 1 << 20
+		opt.ValueThreshold = 1 << 10
+		opt.VLogGCInterval = time.Millisecond // fire almost immediately
+		opt.VLogGCDiscardRatio = 0.5
+
+		db, err := Open(opt)
+		require.NoError(t, err)
+		require.NotNil(t, db.closers.autoVlogGC)
+
+		// Write a little so a tick that fires has something to look at.
+		require.NoError(t, db.Update(func(txn *Txn) error {
+			return txn.SetEntry(NewEntry([]byte("k"), make([]byte, 4<<10)))
+		}))
+
+		// Give the ticker a chance to fire at least once before tearing down.
+		time.Sleep(5 * time.Millisecond)
+
+		require.NoError(t, db.Close())
+		removeDir(dir)
+	}
 }
