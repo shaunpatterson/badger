@@ -33,6 +33,12 @@ type levelsController struct {
 	nextFileID atomic.Uint64
 	l0stallsMs atomic.Int64
 
+	// compactionsInFlight counts the number of runCompactDef calls currently
+	// executing. It is advisory only: the automatic value-log GC scheduler
+	// reads it to gate its work to idle periods, keeping background GC's
+	// per-entry db.get + batchSet off the busy foreground compaction path.
+	compactionsInFlight atomic.Int64
+
 	// The following are initialized once and const.
 	levels []*levelHandler
 	kv     *DB
@@ -1415,6 +1421,12 @@ func (s *levelsController) fillTables(cd *compactDef) bool {
 }
 
 func (s *levelsController) runCompactDef(id, l int, cd compactDef) (err error) {
+	// Track in-flight compactions so the automatic value-log GC scheduler can
+	// gate itself to idle periods. This covers every compaction work unit
+	// (including L0->L0 and Lmax->Lmax moves, which all funnel through here).
+	s.compactionsInFlight.Add(1)
+	defer s.compactionsInFlight.Add(-1)
+
 	if len(cd.t.fileSz) == 0 {
 		return errors.New("Filesizes cannot be zero. Targets are not set")
 	}

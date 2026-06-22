@@ -78,6 +78,19 @@ type Options struct {
 	LmaxCompaction       bool
 	ZSTDCompressionLevel int
 
+	// VLogGCInterval, when greater than zero, enables an automatic background
+	// value-log garbage collector. A managed goroutine wakes up every
+	// VLogGCInterval and, when the LSM/compaction load is low, repeatedly calls
+	// the same discard-stats-driven GC used by RunValueLogGC until there is
+	// nothing left to reclaim. The default of 0 disables the scheduler, leaving
+	// the historical behavior (manual RunValueLogGC only) unchanged.
+	VLogGCInterval time.Duration
+
+	// VLogGCDiscardRatio is the discardRatio passed to each automatic GC run
+	// (see RunValueLogGC). It is only consulted when VLogGCInterval > 0. Must be
+	// in the range (0.0, 1.0); the default is 0.5.
+	VLogGCDiscardRatio float64
+
 	// When set, checksum will be validated for each entry read from the value log file.
 	VerifyValueChecksum bool
 
@@ -174,6 +187,11 @@ func DefaultOptions(path string) Options {
 		EncryptionKeyRotationDuration: 10 * 24 * time.Hour, // Default 10 days.
 		DetectConflicts:               true,
 		NamespaceOffset:               -1,
+
+		// Automatic background value-log GC is disabled by default. When
+		// enabled (VLogGCInterval > 0) the scheduler uses this discard ratio.
+		VLogGCInterval:     0,
+		VLogGCDiscardRatio: 0.5,
 	}
 }
 
@@ -597,6 +615,29 @@ func (opt Options) WithValueLogFileSize(val int64) Options {
 // The default value of ValueLogMaxEntries is one million (1000000).
 func (opt Options) WithValueLogMaxEntries(val uint32) Options {
 	opt.ValueLogMaxEntries = val
+	return opt
+}
+
+// WithVLogGCInterval sets how often the automatic background value-log garbage
+// collector wakes up. A value of 0 (the default) disables the scheduler and
+// preserves the historical behavior where GC only runs via RunValueLogGC.
+//
+// When enabled, a managed background goroutine ticks every val and, provided
+// the LSM/compaction load is low, repeatedly runs discard-stats-driven GC
+// (equivalent to calling RunValueLogGC(VLogGCDiscardRatio) in a loop until it
+// returns ErrNoRewrite). Automatic GC is only active when the DB is neither
+// InMemory nor ReadOnly.
+func (opt Options) WithVLogGCInterval(val time.Duration) Options {
+	opt.VLogGCInterval = val
+	return opt
+}
+
+// WithVLogGCDiscardRatio sets the discard ratio used by the automatic
+// background value-log GC (see WithVLogGCInterval and RunValueLogGC). A file is
+// rewritten when at least this fraction of its space is discardable. It must be
+// in the range (0.0, 1.0); the default is 0.5.
+func (opt Options) WithVLogGCDiscardRatio(val float64) Options {
+	opt.VLogGCDiscardRatio = val
 	return opt
 }
 

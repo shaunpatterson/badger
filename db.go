@@ -45,6 +45,7 @@ type closers struct {
 	memtable    *z.Closer
 	writes      *z.Closer
 	valueGC     *z.Closer
+	autoVlogGC  *z.Closer
 	pub         *z.Closer
 	cacheHealth *z.Closer
 }
@@ -381,6 +382,13 @@ func Open(opt Options) (*DB, error) {
 	if !db.opt.InMemory && !db.opt.ReadOnly {
 		db.closers.valueGC = z.NewCloser(1)
 		go db.vlog.waitOnGC(db.closers.valueGC)
+
+		// Automatic, discard-stats-driven background value-log GC. Disabled by
+		// default (VLogGCInterval == 0), in which case behavior is unchanged.
+		if db.opt.VLogGCInterval > 0 {
+			db.closers.autoVlogGC = z.NewCloser(1)
+			go db.runVlogGCLoop(db.closers.autoVlogGC)
+		}
 	}
 
 	db.closers.pub = z.NewCloser(1)
@@ -484,6 +492,9 @@ func (db *DB) cleanup() {
 	if db.closers.valueGC != nil {
 		db.closers.valueGC.Signal()
 	}
+	if db.closers.autoVlogGC != nil {
+		db.closers.autoVlogGC.Signal()
+	}
 	if db.closers.writes != nil {
 		db.closers.writes.Signal()
 	}
@@ -541,6 +552,16 @@ func (db *DB) close() (err error) {
 	if db.closers.valueGC != nil {
 		// Stop value GC first.
 		db.closers.valueGC.SignalAndWait()
+	}
+
+	// Stop the automatic background GC scheduler before tearing down writes.
+	// valueGC.SignalAndWait above already fenced garbageCh and waited for any
+	// in-flight GC to finish; this stops the ticker goroutine so it can't start
+	// a new round. Both must complete while writes are still open, since a
+	// rewrite mid-flight pushes through the normal write path (batchSet ->
+	// writeCh). Stopping it here guarantees no send on a closed writeCh.
+	if db.closers.autoVlogGC != nil {
+		db.closers.autoVlogGC.SignalAndWait()
 	}
 
 	// Stop writes next.
@@ -1244,6 +1265,71 @@ func (db *DB) RunValueLogGC(discardRatio float64) error {
 
 	// Pick a log file and run GC
 	return db.vlog.runGC(discardRatio)
+}
+
+// runVlogGCLoop is the automatic, discard-stats-driven background value-log GC
+// scheduler. It is only started when Options.VLogGCInterval > 0 (and the DB is
+// neither InMemory nor ReadOnly). It wakes up every VLogGCInterval and, when
+// the LSM/compaction load is low, runs one round of GC.
+//
+// This reuses the exact same correct machinery as the manual RunValueLogGC:
+// vlog.runGC -> pickLog (MaxDiscard, never the active/max fid) -> rewrite,
+// which re-verifies every entry against the LSM (valuePointer Fid/Offset) before
+// copying it back. Discard stats are therefore advisory: an over-eager
+// auto-trigger can at worst do wasted work, never lose or resurrect data.
+//
+// Serialization with manual GC is provided by the existing garbageCh (cap 1)
+// inside runGC; concurrent calls simply receive ErrRejected.
+//
+// v2 (documented, NOT implemented here): "pointer-only rewrite". The current
+// rewrite re-reads each live value from the old vlog file and re-inserts it
+// through the normal write path (db.get + batchSet), so a GC'd file's live
+// bytes traverse the LSM/memtable/WAL again -- write amplification ~2x the live
+// data and foreground write-path contention. A v2 GC could instead stream the
+// live values directly into a freshly-allocated vlog file and then patch only
+// the LSM value pointers (Fid/Offset) for the moved keys, avoiding the re-read
+// + re-encode + memtable round-trip entirely. That requires a transactional
+// "rewrite value pointer if unchanged" primitive on the LSM (CAS on the
+// existing valuePointer) plus careful crash-recovery ordering (new file fsynced
+// and referenced before the old file is dropped), which is why it is out of
+// scope for this MVP.
+func (db *DB) runVlogGCLoop(lc *z.Closer) {
+	defer lc.Done()
+
+	ticker := time.NewTicker(db.opt.VLogGCInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-lc.HasBeenClosed():
+			return
+		case <-ticker.C:
+			db.runVlogGCTick(db.opt.VLogGCDiscardRatio)
+		}
+	}
+}
+
+// runVlogGCTick performs a single scheduler iteration. It is factored out so
+// tests can drive GC deterministically without waiting on the ticker.
+//
+// The idle gate: if any compaction is currently in flight we skip this tick
+// entirely. Background GC does a per-entry db.get + batchSet during rewrite, so
+// we keep it off the busy foreground path and let it run only when the LSM is
+// quiet. The counter is advisory (a compaction may start the instant after we
+// read it) which is fine -- rewrite re-verifies every entry, so a race here can
+// never corrupt data, only do slightly more or less work.
+func (db *DB) runVlogGCTick(discardRatio float64) {
+	if db.lc != nil && db.lc.compactionsInFlight.Load() > 0 {
+		return
+	}
+	// Mirror the recommended manual loop: keep collecting until a run reports
+	// nothing left to do (ErrNoRewrite) or another GC is busy (ErrRejected).
+	for {
+		err := db.vlog.runGC(discardRatio)
+		if err != nil {
+			return
+		}
+	}
 }
 
 // Size returns the size of lsm and value log files in bytes. It can be used to decide how often to
